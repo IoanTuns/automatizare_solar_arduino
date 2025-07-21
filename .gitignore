@@ -1,0 +1,32 @@
+# PlatformIO build artifacts and local configuration.
+# This should be ignored to avoid committing binaries and local settings.
+.pio/
+.vscode/
+
+# Sensitive information file.
+# Keep your credentials out of version control.
+secrets.h
+
+
+.git
+
+# Secrets
+secrets.h
+
+# Ignore logs and databases
+*.log
+*.sql
+*.sqlite
+
+# Ignore temporary and backup files
+*~
+*.tmp
+*.bak
+
+# Ignore IDE and text editor files
+.idea/
+*.iml
+*.ipr
+*.iws
+*.sublime-project
+*.sublime-workspace
