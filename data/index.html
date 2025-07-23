@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Door Group Control</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Control Panel</h1>
+        <div class="card">
+            <h2>Group 1</h2>
+            <div class="button-container">
+                <button class="button button-up" onmousedown="sendRequest('group1_up')" onmouseup="sendRequest('group1_stop')" ontouchstart="sendRequest('group1_up')" ontouchend="sendRequest('group1_stop')">Up</button>
+                <button class="button" onclick="sendRequest('group1_stop')">Stop</button>
+                <button class="button button-down" onmousedown="sendRequest('group1_down')" onmouseup="sendRequest('group1_stop')" ontouchstart="sendRequest('group1_down')" ontouchend="sendRequest('group1_stop')">Down</button>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Group 2</h2>
+            <div class="button-container">
+                <button class="button button-up" onmousedown="sendRequest('group2_up')" onmouseup="sendRequest('group2_stop')" ontouchstart="sendRequest('group2_up')" ontouchend="sendRequest('group2_stop')">Up</button>
+                <button class="button" onclick="sendRequest('group2_stop')">Stop</button>
+                <button class="button button-down" onmousedown="sendRequest('group2_down')" onmouseup="sendRequest('group2_stop')" ontouchstart="sendRequest('group2_down')" ontouchend="sendRequest('group2_stop')">Down</button>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
