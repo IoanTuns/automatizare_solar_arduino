@@ -2,6 +2,8 @@
 #include "config.h" // Include the header with function prototypes
 #include "SensorData.h" // Include the shared header for sensor data
 #include "DoorControl.h"
+#include <Adafruit_PCF8574.h>
+extern Adafruit_PCF8574 pcf;
 extern DoorControl doorControl;
 
 /**
@@ -91,7 +93,7 @@ void SolarWebServer::printWifiStatus() {
  * new client connections, reads incoming data, and responds with a dynamically generated web page
  * displaying the current sensor readings and system information.
  */
-void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt, const int* soilMoisture) {
+void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt, const int* soilMoisture, const String& rtcTime) {
     WiFiClient client = _server.available();
     if (!client) return;
 
@@ -100,15 +102,15 @@ void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt
     client.flush();
 
     // Process commands
-    if      (req.indexOf("/pump1/on")  > 0) digitalWrite(PUMP1_PIN, LOW);
-    else if (req.indexOf("/pump1/off") > 0) digitalWrite(PUMP1_PIN, HIGH);
-    if      (req.indexOf("/pump2/on")  > 0) digitalWrite(PUMP2_PIN, LOW);
-    else if (req.indexOf("/pump2/off") > 0) digitalWrite(PUMP2_PIN, HIGH);
-    if      (req.indexOf("/pump3/on")  > 0) digitalWrite(PUMP3_PIN, LOW);
-    else if (req.indexOf("/pump3/off") > 0) digitalWrite(PUMP3_PIN, HIGH);
+    if      (req.indexOf("/pump1/on")  > 0) pcf.digitalWrite(PCF_PUMP1_PIN, LOW);
+    else if (req.indexOf("/pump1/off") > 0) pcf.digitalWrite(PCF_PUMP1_PIN, HIGH);
+    if      (req.indexOf("/pump2/on")  > 0) pcf.digitalWrite(PCF_PUMP2_PIN, LOW);
+    else if (req.indexOf("/pump2/off") > 0) pcf.digitalWrite(PCF_PUMP2_PIN, HIGH);
+    if      (req.indexOf("/pump3/on")  > 0) pcf.digitalWrite(PCF_PUMP3_PIN, LOW);
+    else if (req.indexOf("/pump3/off") > 0) pcf.digitalWrite(PCF_PUMP3_PIN, HIGH);
 
-    if      (req.indexOf("/fan/on")    > 0) digitalWrite(FAN_PIN, HIGH);
-    else if (req.indexOf("/fan/off")   > 0) digitalWrite(FAN_PIN, LOW);
+    if      (req.indexOf("/fan/on")    > 0) pcf.digitalWrite(PCF_FAN1_PIN, LOW);
+    else if (req.indexOf("/fan/off")   > 0) pcf.digitalWrite(PCF_FAN1_PIN, HIGH);
 
     // Trap controls
     if      (req.indexOf("/trap/open") > 0) openTrap();
@@ -223,7 +225,9 @@ void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt
         </head>
         <body>
         <div class="container">
-            <h1>☀️ Solar Control Panel</h1>
+            <h1>☀️ Solar Control Panel</h1>  
+            <div><b>RTC Time:</b> )rawliteral"); client.print(rtcTime); client.println("</div>");
+            client.println(R"rawliteral(
             <div class="grid">
             <div class="card">
                 <h2><span class="icon">🌡️</span>Climate and Humidity</h2>

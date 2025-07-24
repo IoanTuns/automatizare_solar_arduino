@@ -7,4 +7,5 @@ public:
     ValveControl();
     void set(int valveIndex, bool open);
     bool isOpen(int valveIndex);
+    bool isClosed(int valveIndex);
 };

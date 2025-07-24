@@ -33,7 +33,7 @@ public:
      * @param hExt Exterior humidity reading.
      * This method processes client requests and sends an HTML page with sensor data.
      */
-    void handleClient(float tInt, float hInt, float tExt, float hExt, const int* soilMoisture);
+    void handleClient(float tInt, float hInt, float tExt, float hExt, const int* soilMoisture, const String& rtcTime);
 
     void printWifiStatus();  // Declare the printWifiStatus method here
 

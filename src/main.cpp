@@ -14,20 +14,23 @@
 #include "DoorControl.h"
 #include "PumpControl.h"
 #include "ValveControl.h"
+#include "IrrigationControl.h"
+#include "ClimateControl.h"
 
 // WiFi credentials
 char ssid[] = SECRET_SSID;
 char pass[] = SECRET_PASS;
 
 // DHT instances using config definitions
-DHT dhtInt(DHTPIN_INT, DHTTYPE);
-DHT dhtExt(DHTPIN_EXT, DHTTYPE);
+DHT dhtInt(TEMP_SENSOR_PIN_INT, DHTTYPE);
+DHT dhtExt(TEMP_SENSOR_PIN_EXT, DHTTYPE);
 
 // Web server instance
 SolarWebServer webServer(WEB_SERVER_PORT);
 
 // RTC and PCF8574 instances
 RTC_DS3231 rtc;
+DateTime rtcTimeObj;
 Adafruit_PCF8574 pcf;
 
 // Door control instance
@@ -37,39 +40,22 @@ DoorControl doorControl;
 PumpControl pumpControl;
 ValveControl valveControl;
 
-// Initialize all pins
-void initializePins() {
-  Serial.println("Initializing pins...");
-  for (int i = 0; i < NUM_WATER_PUMPS; i++) {
-    pinMode(PUMP_PINS[i], OUTPUT);
-    digitalWrite(PUMP_PINS[i], LOW);
-  }
-  for (int i = 0; i < NUM_WATER_VALVES; i++) {
-    pinMode(VALVE_PINS[i], OUTPUT);
-    digitalWrite(VALVE_PINS[i], HIGH);
-  }
-  for (int i = 0; i < NUM_FANS; i++) {
-    pinMode(FAN_PINS[i], OUTPUT);
-    digitalWrite(FAN_PINS[i], LOW);
-  }
-  for (int i = 0; i < NUM_OF_DOORS * 2; i++) {
-    pinMode(DOOR_PINS[i], OUTPUT);
-    digitalWrite(DOOR_PINS[i], LOW);
-  }
-  pinMode(TRAP_UP_PIN, OUTPUT);
-  pinMode(TRAP_DOWN_PIN, OUTPUT);
-  digitalWrite(TRAP_UP_PIN, LOW);
-  digitalWrite(TRAP_DOWN_PIN, LOW);
-  pinMode(MAIN_PUMP_PIN, OUTPUT);
-  digitalWrite(MAIN_PUMP_PIN, LOW);
-  Serial.println("Pins initialized successfully");
-}
+IrrigationControl irrigationControl(valveControl);
+ClimateControl climateControl;
+
 
 void controlFan(int fanIndex, bool state) {
-    if (fanIndex >= 0 && fanIndex < NUM_FANS) {
-        digitalWrite(FAN_PINS[fanIndex], state ? HIGH : LOW);
-    }
+    if (fanIndex == 0) pcf.digitalWrite(PCF_FAN1_PIN, state ? LOW : HIGH);
+    else if (fanIndex == 1) pcf.digitalWrite(PCF_FAN2_PIN, state ? LOW : HIGH);
 }
+
+void selectMuxChannel(int channel) {
+  digitalWrite(MUX_S0_PIN, channel & 0x01);
+  digitalWrite(MUX_S1_PIN, (channel >> 1) & 0x01);
+  digitalWrite(MUX_S2_PIN, (channel >> 2) & 0x01);
+  digitalWrite(MUX_S3_PIN, (channel >> 3) & 0x01);
+}
+
 // Read all sensors
 SensorData readSensors() {
   SensorData data;
@@ -78,48 +64,13 @@ SensorData readSensors() {
   data.tempExt = dhtExt.readTemperature();
   data.humExt = dhtExt.readHumidity();
   for (int i = 0; i < NUM_SOIL_SENSORS; i++) {
-    data.soilMoisture[i] = analogRead(SOIL_PINS[i]);
+    selectMuxChannel(i); // Implement this function to set S0-S3
+    delay(2); // Small delay for settling
+    data.soilMoisture[i] = analogRead(MUX_SIG_PIN);
   }
   data.valid = !isnan(data.tempInt) && !isnan(data.humInt) &&
                !isnan(data.tempExt) && !isnan(data.humExt);
   return data;
-}
-
-// Irrigation control based on soil moisture
-bool controlIrrigation(const SensorData& sensors) {
-    bool anyIrrigating = false;
-    for (int i = 0; i < NUM_SOIL_SENSORS && i < NUM_WATER_VALVES; i++) {
-        bool needsWater = sensors.soilMoisture[i] > SOIL_THRESHOLD;
-        valveControl.set(i, needsWater);
-        if (needsWater) {
-            anyIrrigating = true;
-            Serial.print("Zone ");
-            Serial.print(i + 1);
-            Serial.print(" irrigation ON (moisture: ");
-            Serial.print(sensors.soilMoisture[i]);
-            Serial.println(")");
-        }
-    }
-    digitalWrite(MAIN_PUMP_PIN, anyIrrigating ? HIGH : LOW);
-    return anyIrrigating;
-}
-
-// Climate control
-void controlClimate(const SensorData& sensors) {
-  if (!sensors.valid) return;
-  bool fanNeeded = (sensors.tempInt > FAN_TEMP) || (sensors.humInt > FAN_HUM);
-  controlFan(0, fanNeeded);
-  bool secondaryFanNeeded = (sensors.tempInt > FAN_TEMP + 5.0) || (sensors.humInt > FAN_HUM + 10.0);
-  if (NUM_FANS > 1) {
-    controlFan(1, secondaryFanNeeded);
-  }
-  if (fanNeeded) {
-    Serial.print("Climate control: Fan ON (T:");
-    Serial.print(sensors.tempInt);
-    Serial.print("°C, H:");
-    Serial.print(sensors.humInt);
-    Serial.println("%)");
-  }
 }
 
 // SD card chip select pin
@@ -156,19 +107,30 @@ void logData(const SensorData& data, bool sdInitialized) {
 
 void setup() {
   Serial.begin(115200);
-  sdInitialized = SD.begin(chipSelect);
-  if (!sdInitialized) {
-    Serial.println("SD card initialization failed!");
-  } else {
-    Serial.println("SD card initialized.");
-  }
-  webServer.begin(ssid, pass);
-  initializePins();
+  delay(100); // Small delay to ensure serial is ready
+  
+  Serial.println("Starting Solar Irrigation System...");
   dhtInt.begin();
   dhtExt.begin();
+  // Initialize I2C communication  
   Wire.begin();
-  HardwareInit::initializePCF(pcf);
-  HardwareInit::initializeRTC(rtc);
+
+  // Initialize RTC and get current time
+  
+  // HardwareInit::initializePCF(pcf);
+  DateTime rtcTime = HardwareInit::initializeRTC(rtc, true);
+  Serial.print("RTC Current Time: ");
+  Serial.print(rtcTime.hour());
+  Serial.print(":");
+  Serial.print(rtcTime.minute());
+  Serial.print(":");
+  Serial.println(rtcTime.second());
+
+  // HardwareInit::initializePins();
+  sdInitialized = HardwareInit::initializeSD(chipSelect);
+
+  webServer.begin(ssid, pass);
+  
   Serial.println("=== Setup Complete ===");
   Serial.println("System ready for operation");
   Serial.println("=====================");
@@ -177,6 +139,13 @@ void setup() {
 void loop() {
   static unsigned long lastSensorRead = 0;
   static SensorData sensors;
+
+  // Update RTC time string every loop
+  DateTime now = rtc.now();
+  String rtcTime = String(now.hour()) + ":" +
+                   String(now.minute()) + ":" +
+                   String(now.second());
+
   if (millis() - lastSensorRead > 2000) {
     sensors = readSensors();
     lastSensorRead = millis();
@@ -187,13 +156,13 @@ void loop() {
     }
   }
   if (sensors.valid) {
-    controlIrrigation(sensors);
-    controlClimate(sensors);
+    irrigationControl.control(sensors);
+    climateControl.control(sensors);
   }
   if (WiFi.status() == WL_CONNECTED) {
     webServer.handleClient(sensors.tempInt, sensors.humInt,
                           sensors.tempExt, sensors.humExt,
-                          sensors.soilMoisture);
+                          sensors.soilMoisture, rtcTime);
   }
   SystemDisplay::displayStatus(sensors, rtc);
   delay(100);
