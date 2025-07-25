@@ -1,10 +1,5 @@
 #include "SolarWebServer.h"
 #include "config.h" // Include the header with function prototypes
-#include "SensorData.h" // Include the shared header for sensor data
-#include "DoorControl.h"
-#include <Adafruit_PCF8574.h>
-extern Adafruit_PCF8574 pcf;
-extern DoorControl doorControl;
 
 /**
  * @file SolarWebServer.cpp
@@ -19,9 +14,11 @@ extern DoorControl doorControl;
  * @param port The port number on which the web server will listen. Defaults to WEB_SERVER_PORT.
  */
 
-int status = WL_IDLE_STATUS;
-
-SolarWebServer::SolarWebServer(uint16_t port) : _server(port) {}
+SolarWebServer::SolarWebServer(uint16_t port, PumpControl& pumpControl, DoorControl& doorControl, ClimateControl& climateControl)
+    : _server(port),
+      _pumpControl(pumpControl),
+      _doorControl(doorControl),
+      _climateControl(climateControl) {}
 
 /**
  * @brief Starts the web server and connects to a WiFi network.
@@ -34,32 +31,36 @@ SolarWebServer::SolarWebServer(uint16_t port) : _server(port) {}
 void SolarWebServer::begin(const char* ssid, const char* pass) {
     // Check for the WiFi module
     if (WiFi.status() == WL_NO_MODULE) {
-        Serial.println("Communication with WiFi module failed!");
-        // Don't continue
-        while (true);
+        Serial.println("ERROR: Communication with WiFi module failed! The server will not start.");
+        // Don't hang the system; just exit the function.
+        // The rest of the application can run in offline mode.
+        return;
     }
 
     // Check WiFi firmware
     String fv = WiFi.firmwareVersion();
     if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
-        Serial.println("Please upgrade the firmware");
+        Serial.println("Warning: WiFi firmware is not the latest version. Please upgrade.");
     }
 
-    // Attempt to connect to WiFi network
-    while (status != WL_CONNECTED) {
-        Serial.print("Attempting to connect to SSID: ");
-        Serial.println(ssid);
-        // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
-        status = WiFi.begin(ssid, pass);
+    // Attempt to connect to WiFi network with a 30-second timeout
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(ssid);
+    WiFi.begin(ssid, pass);
 
-        // Wait 10 seconds for connection
-        delay(10000);
+    unsigned long startTime = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - startTime < 30000)) {
+        Serial.print(".");
+        delay(500);
     }
 
-    _server.begin();
-    // You're connected now, so print out the status
-    printWifiStatus();
-    Serial.println("\n[Web] Connected, IP: " + WiFi.localIP().toString());
+    if (WiFi.status() == WL_CONNECTED) {
+        _server.begin();
+        printWifiStatus();
+        Serial.println("\n[Web] Connected, IP: " + WiFi.localIP().toString());
+    } else {
+        Serial.println("\n[Web] Failed to connect to WiFi after 30 seconds. Continuing in offline mode.");
+    }
 }
 
 /**
@@ -84,16 +85,14 @@ void SolarWebServer::printWifiStatus() {
 
 /**
  * @brief Handles incoming client requests.
- * @param tInt Interior temperature reading.
- * @param hInt Interior humidity reading.
- * @param tExt Exterior temperature reading.
- * @param hExt Exterior humidity reading.
+ * @param sensors A struct containing all current sensor readings.
+ * @param rtcTime A formatted string of the current time.
  * 
  * This method processes client requests and sends an HTML page with sensor data. It checks for
  * new client connections, reads incoming data, and responds with a dynamically generated web page
  * displaying the current sensor readings and system information.
  */
-void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt, const int* soilMoisture, const String& rtcTime) {
+void SolarWebServer::handleClient(const SensorData& sensors, const String& rtcTime) {
     WiFiClient client = _server.available();
     if (!client) return;
 
@@ -102,29 +101,27 @@ void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt
     client.flush();
 
     // Process commands
-    if      (req.indexOf("/pump1/on")  > 0) pcf.digitalWrite(PCF_PUMP1_PIN, LOW);
-    else if (req.indexOf("/pump1/off") > 0) pcf.digitalWrite(PCF_PUMP1_PIN, HIGH);
-    if      (req.indexOf("/pump2/on")  > 0) pcf.digitalWrite(PCF_PUMP2_PIN, LOW);
-    else if (req.indexOf("/pump2/off") > 0) pcf.digitalWrite(PCF_PUMP2_PIN, HIGH);
-    if      (req.indexOf("/pump3/on")  > 0) pcf.digitalWrite(PCF_PUMP3_PIN, LOW);
-    else if (req.indexOf("/pump3/off") > 0) pcf.digitalWrite(PCF_PUMP3_PIN, HIGH);
+    if      (req.indexOf("/pump1/on")  > 0) _pumpControl.set(0, true);
+    else if (req.indexOf("/pump1/off") > 0) _pumpControl.set(0, false);
+    if      (req.indexOf("/pump2/on")  > 0) _pumpControl.set(1, true);
+    else if (req.indexOf("/pump2/off") > 0) _pumpControl.set(1, false);
+    if      (req.indexOf("/pump3/on")  > 0) _pumpControl.set(2, true);
+    else if (req.indexOf("/pump3/off") > 0) _pumpControl.set(2, false);
 
-    if      (req.indexOf("/fan/on")    > 0) pcf.digitalWrite(PCF_FAN1_PIN, LOW);
-    else if (req.indexOf("/fan/off")   > 0) pcf.digitalWrite(PCF_FAN1_PIN, HIGH);
+    if      (req.indexOf("/fan/on")    > 0) _climateControl.controlFan(0, true);
+    else if (req.indexOf("/fan/off")   > 0) _climateControl.controlFan(0, false);
 
     // Trap controls
-    if      (req.indexOf("/trap/open") > 0) openTrap();
-    else if (req.indexOf("/trap/close")> 0) closeTrap();
-    else if (req.indexOf("/trap/up")   > 0) trapUp();
+    if      (req.indexOf("/trap/up")   > 0) trapUp();
     else if (req.indexOf("/trap/down") > 0) trapDown();
     else if (req.indexOf("/trap/stop") > 0) stopTrap();
 
     // Individual door controls
-    if      (req.indexOf("/door/open") > 0) doorControl.open(0);
-    else if (req.indexOf("/door/close")> 0) doorControl.close(0);
-    else if (req.indexOf("/door/up") > 0) doorControl.up(0);
-    else if (req.indexOf("/door/down") > 0) doorControl.down(0);
-    else if (req.indexOf("/door/stop") > 0) doorControl.stop(0);
+    if      (req.indexOf("/door/open") > 0) _doorControl.open(0);
+    else if (req.indexOf("/door/close")> 0) _doorControl.close(0);
+    else if (req.indexOf("/door/up") > 0) _doorControl.up(0);
+    else if (req.indexOf("/door/down") > 0) _doorControl.down(0);
+    else if (req.indexOf("/door/stop") > 0) _doorControl.stop(0);
 
     // Send HTML response
     client.println("HTTP/1.1 200 OK");
@@ -226,27 +223,28 @@ void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt
         <body>
         <div class="container">
             <h1>☀️ Solar Control Panel</h1>  
-            <div><b>RTC Time:</b> )rawliteral"); client.print(rtcTime); client.println("</div>");
+            <div><b>Date & Time:</b> )rawliteral"); client.print(rtcTime); client.println("</div>");
             client.println(R"rawliteral(
             <div class="grid">
             <div class="card">
                 <h2><span class="icon">🌡️</span>Climate and Humidity</h2>
-                <div class="status ok"><b>Temperature Interior:</b> )rawliteral"); client.print(tInt, 1); client.println(" &deg;C</div>");
+                <div class="status ok"><b>Temperature Interior:</b> )rawliteral"); client.print(sensors.tempInt, 1); client.println(" &deg;C</div>");
                 client.println(R"rawliteral(
-                        <div class="status ok"><b>Temperature Exterior:</b> )rawliteral"); client.print(tExt, 1); client.println(" &deg;C</div>");
+                        <div class="status ok"><b>Temperature Exterior:</b> )rawliteral"); client.print(sensors.tempExt, 1); client.println(" &deg;C</div>");
                 client.println(R"rawliteral(
-                        <div class="status ok"><b>Humidity Interior:</b> )rawliteral"); client.print(hInt, 1); client.println(" %</div>");
+                        <div class="status ok"><b>Humidity Interior:</b> )rawliteral"); client.print(sensors.humInt, 1); client.println(" %</div>");
                 client.println(R"rawliteral(
-                        <div class="status ok"><b>Humidity Exterior:</b> )rawliteral"); client.print(hExt, 1); client.println(" %</div>");
+                        <div class="status ok"><b>Humidity Exterior:</b> )rawliteral"); client.print(sensors.humExt, 1); client.println(" %</div>");
                 client.println(R"rawliteral(
             </div>
             <div class="card">
                 <h2><span class="icon">🌱</span>Soil Moisture</h2>
-                <div class="status"><b>Soil 1:</b> )rawliteral"); client.print(soilStatus[0]); client.println(" ("); client.print(soilMoisture[0]); client.println(")</div>");
+                <div class="status"
+                ><b>Soil 1:</b> )rawliteral"); client.print(soilStatus[0]); client.println(" ("); client.print(sensors.soilMoisture[0]); client.println(")</div>");
     client.println(R"rawliteral(
-                <div class="status"><b>Soil 2:</b> )rawliteral"); client.print(soilStatus[1]); client.println(" ("); client.print(soilMoisture[1]); client.println(")</div>");
+                <div class="status"><b>Soil 2:</b> )rawliteral"); client.print(soilStatus[1]); client.println(" ("); client.print(sensors.soilMoisture[1]); client.println(")</div>");
     client.println(R"rawliteral(
-                <div class="status"><b>Soil 3:</b> )rawliteral"); client.print(soilStatus[2]); client.println(" ("); client.print(soilMoisture[2]); client.println(")</div>");
+                <div class="status"><b>Soil 3:</b> )rawliteral"); client.print(soilStatus[2]); client.println(" ("); client.print(sensors.soilMoisture[2]); client.println(")</div>");
     client.println(R"rawliteral(
             </div>
 
@@ -254,7 +252,7 @@ void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt
                 <h2><span class="icon">💧</span>Irrigation Pumps</h2>
                 <div class="row-flex">
                     <div style="flex:1; min-width:150px;">
-                        <h3><span class="icon">🚿</span>Valves</h3>
+                        <h3><span class="icon">🚿</span>Valves Status</h3>
                         <div><b>Valve 1:</b> )rawliteral"); client.print(valveStatus[0]); client.println("</div>");
                         client.println(R"rawliteral(
                                         <div><b>Valve 2:</b> )rawliteral"); client.print(valveStatus[1]); client.println("</div>");
@@ -263,7 +261,7 @@ void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt
                         client.println(R"rawliteral(
                     </div>
                     <div style="flex:1; min-width:150px;">
-                        <h3><span class="icon">🛢️</span>Pumps Status</h3>
+                        <h3><span class="icon">🛢️</span>Pumps</h3>
                         <div><b>Pump 1:</b> )rawliteral"); client.print(pumpStatus[0]); client.println("</div>");
                         client.println(R"rawliteral(
                                         <div><b>Pump 2:</b> )rawliteral"); client.print(pumpStatus[1]); client.println("</div>");
@@ -316,7 +314,7 @@ void SolarWebServer::handleClient(float tInt, float hInt, float tExt, float hExt
 
             <div class="card">
                 <h2><span class="icon">🌧️</span>Rain</h2>
-                <div class="status"><b>Rain:</b> )rawliteral"); client.print(rainStatus); client.println("</div>");
+                <div class="status"><b>Rain:</b> )rawliteral"); client.print(rainStatus); client.print(" ("); client.print(sensors.rainSensorValue); client.println(")"); client.println("</div>");
     client.println(R"rawliteral(        </div>
 
         </div>

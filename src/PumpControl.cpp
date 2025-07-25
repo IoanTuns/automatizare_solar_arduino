@@ -1,20 +1,18 @@
 #include "PumpControl.h"
-#include <Adafruit_PCF8574.h>
-extern Adafruit_PCF8574 pcf;
+#include "config.h"
 
-PumpControl::PumpControl() {}
+PumpControl::PumpControl(Adafruit_PCF8574& pcf) : _pcf(pcf) {}
 
 void PumpControl::set(int pumpIndex, bool on) {
     if (pumpIndex >= 0 && pumpIndex < NUM_WATER_PUMPS) {
-        if (pumpIndex == 0) pcf.digitalWrite(PCF_PUMP1_PIN, on ? LOW : HIGH);
-        else if (pumpIndex == 1) pcf.digitalWrite(PCF_PUMP2_PIN, on ? LOW : HIGH);
-        else if (pumpIndex == 2) pcf.digitalWrite(PCF_PUMP3_PIN, on ? LOW : HIGH);
+        _pcf.digitalWrite(PCF1_PUMP_PINS[pumpIndex], on ? LOW : HIGH);
+        pumpStatus[pumpIndex] = on ? "on" : "off";
     }
 }
 
 bool PumpControl::isOn(int pumpIndex) {
     if (pumpIndex >= 0 && pumpIndex < NUM_WATER_PUMPS) {
-        return pcf.digitalRead(PCF_PUMP1_PIN) == LOW;
+        return _pcf.digitalRead(PCF1_PUMP_PINS[pumpIndex]) == LOW;
     }
     return false;
 }

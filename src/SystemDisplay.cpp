@@ -3,7 +3,7 @@
 // Initialize static member
 unsigned long SystemDisplay::lastDisplay = 0;
 
-void SystemDisplay::displayStatus(const SensorData& sensors, RTC_DS3231& rtc) {
+void SystemDisplay::displayStatus(const SensorData& sensors, bool rtcInitialized, const String& rtcTimeString) {
   if (millis() - lastDisplay < 10000) return; // Display every 10 seconds
   
   Serial.println("=== System Status ===");
@@ -41,20 +41,9 @@ void SystemDisplay::displayStatus(const SensorData& sensors, RTC_DS3231& rtc) {
     Serial.println("Sensor readings invalid!");
   }
   
-  // Display RTC time if available
-  DateTime now = rtc.now();
+  // Display RTC time string
   Serial.print("Time: ");
-  Serial.print(now.day());
-  Serial.print("/");
-  Serial.print(now.month());
-  Serial.print("/");
-  Serial.print(now.year());
-  Serial.print(" ");
-  Serial.print(now.hour());
-  Serial.print(":");
-  Serial.print(now.minute());
-  Serial.print(":");
-  Serial.println(now.second());
+  Serial.println(rtcTimeString);
   
   Serial.println("====================");
   lastDisplay = millis();

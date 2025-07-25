@@ -1,15 +1,26 @@
 #include "ClimateControl.h"
+#include "config.h"
 
-ClimateControl::ClimateControl() {}
+ClimateControl::ClimateControl(Adafruit_PCF8574& pcf) : _pcf(pcf) {}
+
+void ClimateControl::controlFan(int fanIndex, bool state) {
+    if (fanIndex >= 0 && fanIndex < NUM_FANS) {
+        _pcf.digitalWrite(PCF1_FAN_PINS[fanIndex], state ? LOW : HIGH);
+        fanStatus[fanIndex] = state ? "on" : "off";
+    }
+}
 
 void ClimateControl::control(const SensorData& sensors) {
     if (!sensors.valid) return;
-    bool fanNeeded = (sensors.tempInt > FAN_TEMP) || (sensors.humInt > FAN_HUM);
-    controlFan(0, fanNeeded);
-    bool secondaryFanNeeded = (sensors.tempInt > FAN_TEMP + 5.0) || (sensors.humInt > FAN_HUM + 10.0);
+    
+    bool fanNeeded = (sensors.tempInt > FAN_TEMP_PRIMARY) || (sensors.humInt > FAN_HUM_PRIMARY);
+    controlFan(0, fanNeeded); // Control first fan
+
+    bool secondaryFanNeeded = (sensors.tempInt > FAN_TEMP_SECONDARY) || (sensors.humInt > FAN_HUM_SECONDARY);
     if (NUM_FANS > 1) {
-        controlFan(1, secondaryFanNeeded);
+        controlFan(1, secondaryFanNeeded); // Control second fan
     }
+    
     if (fanNeeded) {
         Serial.print("Climate control: Fan ON (T:");
         Serial.print(sensors.tempInt);

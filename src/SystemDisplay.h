@@ -9,7 +9,7 @@
 
 class SystemDisplay {
 public:
-  static void displayStatus(const SensorData& sensors, RTC_DS3231& rtc);
+  static void displayStatus(const SensorData& sensors, bool rtcInitialized, const String& rtcTimeString);
   
 private:
   static unsigned long lastDisplay;

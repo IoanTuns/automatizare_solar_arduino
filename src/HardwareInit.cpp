@@ -3,52 +3,52 @@
 #include <SD.h>
 
 void HardwareInit::initializePins() {
-  Serial.println("Initializing pins...");
-  Serial.print("NUM_OF_DOORS: ");
-  for (int i = 0; i < NUM_OF_DOORS * 2; i++) {
-    Serial.print("Setting pin: ");
-    pinMode(DOOR_PINS[i], OUTPUT);
-    digitalWrite(DOOR_PINS[i], LOW);
+  Serial.println("Setting door limit switch pins...");
+  for (int i = 0; i < NUM_OF_DOORS; i++) {
+    Serial.print("Door "); Serial.print(i+1); Serial.print(" open pin: "); Serial.println(DOOR_LIMIT_OPEN_PINS[i]);
+    pinMode(DOOR_LIMIT_OPEN_PINS[i], INPUT_PULLUP);
+    Serial.print("Door "); Serial.print(i+1); Serial.print(" closed pin: "); Serial.println(DOOR_LIMIT_CLOSED_PINS[i]);
+    pinMode(DOOR_LIMIT_CLOSED_PINS[i], INPUT_PULLUP);
   }
-  pinMode(TRAP_UP_PIN, OUTPUT);
-  pinMode(TRAP_DOWN_PIN, OUTPUT);
-  digitalWrite(TRAP_UP_PIN, LOW);
-  digitalWrite(TRAP_DOWN_PIN, LOW);
-  Serial.println("Pins initialized successfully");
-  return; // Pins initialized successfully
-}
 
-// Initialize PCF8574 I2C expander with retry
-void HardwareInit::initializePCF(Adafruit_PCF8574& pcf) {
-  Serial.print("Initializing PCF8574...");
-  
-  int attempts = 0;
-  const int maxAttempts = 5;
-  
-  while (attempts < maxAttempts) {
-    if (pcf.begin(PCF_ADDR)) {
-      // Configure all PCF pins as OUTPUT and set HIGH (relays off)
-      for (uint8_t i = 0; i < 8; i++) {
-        pcf.pinMode(i, OUTPUT);
-        pcf.digitalWrite(i, HIGH);
-      }
-      Serial.println("OK");
-      return; // Success, exit function
-    }
-    
-    attempts++;
-    Serial.print(".");
-    delay(1000); // Wait 1 second before retry
-  }
-  
-  // All attempts failed
-  Serial.println("PCF FAILED!");
-  Serial.println("WARNING: PCF8574 not found after 5 attempts. Continuing without PCF8574...");
+  Serial.println("Setting multiplexer select pins...");
+  pinMode(MUX_S0_PIN, OUTPUT);
+  pinMode(MUX_S1_PIN, OUTPUT);
+  pinMode(MUX_S2_PIN, OUTPUT);
+  pinMode(MUX_S3_PIN, OUTPUT); // Only necessary if using a 16-channel MUX or for future expansion
+
+  Serial.println("Setting water flow sensor pins and attaching interrupts...");
+  // Attach interrupts for each flow meter pin.
+  // Ensure the ISRs (flowMeterISR0, flowMeterISR1, flowMeterISR2) are defined globally.
+  // RISING is generally suitable for pulse sensors, but check your sensor's datasheet.
+  pinMode(WATER_FLOW_METER_PINS[0], INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(WATER_FLOW_METER_PINS[0]), flowMeterISR0, RISING);
+  Serial.print("Flow Meter 1 on pin "); Serial.println(WATER_FLOW_METER_PINS[0]);
+
+  pinMode(WATER_FLOW_METER_PINS[1], INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(WATER_FLOW_METER_PINS[1]), flowMeterISR1, RISING);
+  Serial.print("Flow Meter 2 on pin "); Serial.println(WATER_FLOW_METER_PINS[1]);
+
+  pinMode(WATER_FLOW_METER_PINS[2], INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(WATER_FLOW_METER_PINS[2]), flowMeterISR2, RISING);
+  Serial.print("Flow Meter 3 on pin "); Serial.println(WATER_FLOW_METER_PINS[2]);
+
+  Serial.println("Pins initialized successfully");
 }
 
 // Initialize RTC with retry
 DateTime HardwareInit::initializeRTC(RTC_DS3231& rtc, bool setTime) {
   Serial.print("Initializing RTC...");
+
+  // Pre-check to see if a device is actually present at the RTC's I2C address
+  Wire.beginTransmission(RTC_ADDR);
+  if (Wire.endTransmission() != 0) {
+    Serial.println("\nERROR: No device responded at the RTC address (0x" + String(RTC_ADDR, HEX) + ").");
+    Serial.println("The device at 0x51 is likely the EEPROM on the module, not the clock chip.");
+    Serial.println("Please check RTC module wiring and power.");
+    return DateTime((uint32_t)0); // Return invalid time immediately
+  }
+
   int attempts = 0;
   const int maxAttempts = 5;
   while (attempts < maxAttempts) {
@@ -58,13 +58,6 @@ DateTime HardwareInit::initializeRTC(RTC_DS3231& rtc, bool setTime) {
         rtc.adjust(DateTime(__DATE__, __TIME__));
       }
       Serial.println("RTC OK");
-      // DateTime rtcTime = rtc.now();
-      // Serial.print("RTC Current Time: ");
-      // Serial.print(rtcTime.hour());
-      // Serial.print(":");
-      // Serial.print(rtcTime.minute());
-      // Serial.print(":");
-      // Serial.println(rtcTime.second());
       return rtc.now();
     }
     attempts++;

@@ -1,29 +1,25 @@
 #include "ValveControl.h"
-#include <Adafruit_PCF8574.h>
-extern Adafruit_PCF8574 pcf;
+#include "config.h"
 
-ValveControl::ValveControl() {}
+ValveControl::ValveControl(Adafruit_PCF8574& pcf) : _pcf(pcf) {}
 
 void ValveControl::set(int valveIndex, bool open) {
     if (valveIndex >= 0 && valveIndex < NUM_WATER_VALVES) {
-        if (valveIndex == 0) pcf.digitalWrite(PCF_VALVE1_PIN, open ? LOW : HIGH);
-        else if (valveIndex == 1) pcf.digitalWrite(PCF_VALVE2_PIN, open ? LOW : HIGH);
-        else if (valveIndex == 2) pcf.digitalWrite(PCF_VALVE3_PIN, open ? LOW : HIGH);
+        _pcf.digitalWrite(PCF1_VALVE_PINS[valveIndex], open ? LOW : HIGH);
+        valveStatus[valveIndex] = open ? "open" : "closed";
     }
 }
 
 bool ValveControl::isOpen(int valveIndex) {
     if (valveIndex >= 0 && valveIndex < NUM_WATER_VALVES) {
-        return pcf.digitalRead(PCF_VALVE1_PIN) == LOW;
+        return _pcf.digitalRead(PCF1_VALVE_PINS[valveIndex]) == LOW;
     }
     return false;
 }
 
 bool ValveControl::isClosed(int valveIndex) {
     if (valveIndex >= 0 && valveIndex < NUM_WATER_VALVES) {
-        if (valveIndex == 0) return pcf.digitalRead(PCF_VALVE1_PIN) == HIGH;
-        else if (valveIndex == 1) return pcf.digitalRead(PCF_VALVE2_PIN) == HIGH;
-        else if (valveIndex == 2) return pcf.digitalRead(PCF_VALVE3_PIN) == HIGH;
+        return _pcf.digitalRead(PCF1_VALVE_PINS[valveIndex]) == HIGH;
     }
     return false;
 }

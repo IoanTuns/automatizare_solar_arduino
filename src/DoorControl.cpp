@@ -1,6 +1,8 @@
 #include "DoorControl.h"
+#include "config.h"
 
-DoorControl::DoorControl() {}
+// The constructor initializes the reference to the PCF expander.
+DoorControl::DoorControl(Adafruit_PCF8574& pcf) : _pcf(pcf) {}
 
 bool DoorControl::isFullyOpen(int doorIndex) {
     return digitalRead(DOOR_LIMIT_OPEN_PINS[doorIndex]) == LOW;
@@ -16,7 +18,6 @@ void DoorControl::open(int doorIndex) {
         return;
     }
 
-    // Check if the open sensor pin is valid (not -1 or 255)
     int openPin = DOOR_LIMIT_OPEN_PINS[doorIndex];
     bool hasOpenSensor = (openPin != -1 && openPin != 255);
 
@@ -28,17 +29,17 @@ void DoorControl::open(int doorIndex) {
         return;
     }
 
-    int pin1 = DOOR_PINS[doorIndex * 2];
-    int pin2 = DOOR_PINS[doorIndex * 2 + 1];
-    digitalWrite(pin1, HIGH);
-    digitalWrite(pin2, LOW);
+    int pin1 = PCF2_DOOR_PINS[doorIndex * 2];
+    int pin2 = PCF2_DOOR_PINS[doorIndex * 2 + 1];
+    _pcf.digitalWrite(pin1, LOW);  // Relay ON (active LOW)
+    _pcf.digitalWrite(pin2, HIGH); // Relay OFF
 
     unsigned long start = millis();
-    while ((!hasOpenSensor || !isFullyOpen(doorIndex)) && millis() - start < 5000) {
+    while ((!hasOpenSensor || !isFullyOpen(doorIndex)) && millis() - start < DOOR_MOVE_TIMEOUT_MS) {
         delay(10);
     }
-    digitalWrite(pin1, LOW);
-    digitalWrite(pin2, LOW);
+    _pcf.digitalWrite(pin1, HIGH); // Relay OFF
+    _pcf.digitalWrite(pin2, HIGH); // Relay OFF
 
     Serial.print("Door ");
     Serial.print(doorIndex + 1);
@@ -52,7 +53,6 @@ void DoorControl::open(int doorIndex) {
         }
     } else {
         Serial.println(" status unknown (no sensor)");
-        // Do not change doorStatus if no sensor
     }
 }
 
@@ -78,18 +78,18 @@ void DoorControl::close(int doorIndex) {
         return;
     }
 
-    int pin1 = DOOR_PINS[doorIndex * 2];
-    int pin2 = DOOR_PINS[doorIndex * 2 + 1];
-    digitalWrite(pin1, LOW);
-    digitalWrite(pin2, HIGH);
+    int pin1 = PCF2_DOOR_PINS[doorIndex * 2];
+    int pin2 = PCF2_DOOR_PINS[doorIndex * 2 + 1];
+    _pcf.digitalWrite(pin1, HIGH); // Relay OFF
+    _pcf.digitalWrite(pin2, LOW);  // Relay ON (active LOW)
 
     unsigned long start = millis();
-    while ((!hasClosedSensor || !isFullyClosed(doorIndex)) && millis() - start < 5000) {
+    while ((!hasClosedSensor || !isFullyClosed(doorIndex)) && millis() - start < DOOR_MOVE_TIMEOUT_MS) {
         delay(10);
     }
-    delay(2000);
-    digitalWrite(pin1, LOW);
-    digitalWrite(pin2, LOW);
+    delay(DOOR_CLOSE_DELAY_MS);
+    _pcf.digitalWrite(pin1, HIGH); // Relay OFF
+    _pcf.digitalWrite(pin2, HIGH); // Relay OFF
 
     Serial.print("Door ");
     Serial.print(doorIndex + 1);
@@ -109,10 +109,10 @@ void DoorControl::close(int doorIndex) {
 
 void DoorControl::up(int doorIndex) {
     if (doorIndex >= 0 && doorIndex < NUM_OF_DOORS) {
-        int pin1 = DOOR_PINS[doorIndex * 2];
-        int pin2 = DOOR_PINS[doorIndex * 2 + 1];
-        digitalWrite(pin1, HIGH);
-        digitalWrite(pin2, LOW);
+        int pin1 = PCF2_DOOR_PINS[doorIndex * 2];
+        int pin2 = PCF2_DOOR_PINS[doorIndex * 2 + 1];
+        _pcf.digitalWrite(pin1, LOW);  // Relay ON (active LOW)
+        _pcf.digitalWrite(pin2, HIGH); // Relay OFF
         Serial.print("Door ");
         Serial.print(doorIndex + 1);
         Serial.println(" moving up");
@@ -121,10 +121,10 @@ void DoorControl::up(int doorIndex) {
 
 void DoorControl::down(int doorIndex) {
     if (doorIndex >= 0 && doorIndex < NUM_OF_DOORS) {
-        int pin1 = DOOR_PINS[doorIndex * 2];
-        int pin2 = DOOR_PINS[doorIndex * 2 + 1];
-        digitalWrite(pin1, LOW);
-        digitalWrite(pin2, HIGH);
+        int pin1 = PCF2_DOOR_PINS[doorIndex * 2];
+        int pin2 = PCF2_DOOR_PINS[doorIndex * 2 + 1];
+        _pcf.digitalWrite(pin1, HIGH); // Relay OFF
+        _pcf.digitalWrite(pin2, LOW);  // Relay ON (active LOW)
         Serial.print("Door ");
         Serial.print(doorIndex + 1);
         Serial.println(" moving down");
@@ -133,10 +133,10 @@ void DoorControl::down(int doorIndex) {
 
 void DoorControl::stop(int doorIndex) {
     if (doorIndex >= 0 && doorIndex < NUM_OF_DOORS) {
-        int pin1 = DOOR_PINS[doorIndex * 2];
-        int pin2 = DOOR_PINS[doorIndex * 2 + 1];
-        digitalWrite(pin1, LOW);
-        digitalWrite(pin2, LOW);
+        int pin1 = PCF2_DOOR_PINS[doorIndex * 2];
+        int pin2 = PCF2_DOOR_PINS[doorIndex * 2 + 1];
+        _pcf.digitalWrite(pin1, HIGH); // Relay OFF
+        _pcf.digitalWrite(pin2, HIGH); // Relay OFF
         Serial.print("Door ");
         Serial.print(doorIndex + 1);
         Serial.println(" stopped");

@@ -10,8 +10,6 @@
 class HardwareInit {
 public:
   static void initializePins();
-  // Initializes the PCF8574 I/O expander by setting up communication and configuring initial pin states.
-  static void initializePCF(Adafruit_PCF8574& pcf);
   // Initializes the RTC by configuring it and ensuring it is running; may set the time if not already set.
   static DateTime initializeRTC(RTC_DS3231& rtc, bool setTime = false);
   static bool initializeSD(int chipSelect);

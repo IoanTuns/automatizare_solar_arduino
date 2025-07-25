@@ -2,6 +2,10 @@
 #define SOLAR_WEBSERVER_H
 
 #include <WiFiS3.h>
+#include "PumpControl.h"
+#include "DoorControl.h"
+#include "ClimateControl.h"
+#include "SensorData.h"
 #include <DHT.h>
 #include "config.h"
 
@@ -15,7 +19,7 @@ public:
      * @brief Constructs a SolarWebServer object with a specified port.
      * @param port The port number on which the web server will listen. Defaults to WEB_SERVER_PORT.
      */
-    SolarWebServer(uint16_t port = WEB_SERVER_PORT);
+    SolarWebServer(uint16_t port, PumpControl& pumpControl, DoorControl& doorControl, ClimateControl& climateControl);
 
     /**
      * @brief Starts the web server and connects to a WiFi network.
@@ -27,18 +31,19 @@ public:
 
     /**
      * @brief Handles incoming client requests.
-     * @param tInt Interior temperature reading.
-     * @param hInt Interior humidity reading.
-     * @param tExt Exterior temperature reading.
-     * @param hExt Exterior humidity reading.
+     * @param sensors A struct containing all current sensor readings.
+     * @param rtcTime A formatted string of the current time.
      * This method processes client requests and sends an HTML page with sensor data.
      */
-    void handleClient(float tInt, float hInt, float tExt, float hExt, const int* soilMoisture, const String& rtcTime);
+    void handleClient(const SensorData& sensors, const String& rtcTime);
 
     void printWifiStatus();  // Declare the printWifiStatus method here
 
 private:
     WiFiServer _server; ///< The WiFi server instance.
+    PumpControl& _pumpControl;
+    DoorControl& _doorControl;
+    ClimateControl& _climateControl;
 };
 
 #endif // SOLAR_WEBSERVER_H

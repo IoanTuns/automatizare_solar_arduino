@@ -2,132 +2,180 @@
 #define CONFIG_H
 
 #include <Arduino.h>
+#include <Adafruit_PCF8574.h>
 #include <DHT.h>
+#define CONFIG_VERSION "1.0.0"
 
-#define WEB_SERVER_PORT 80
+// ================== Serial & Web Server ==================
+const long SERIAL_BAUD_RATE = 115200;
+const int WEB_SERVER_PORT  = 80;
 
-// ================== System Capacity Constants ==================
-const int NUM_SOIL_SENSORS      = 3;
-const int NUM_OF_DOORS          = 2;
-const int NUM_WATER_VALVES      = 3;
-const int NUM_WATER_PUMPS       = 3;
-const int NUM_WATER_FLOW_METERS = 3;
-const int NUM_FANS              = 2;
-const int NUM_TEMP_SENSORS      = 2;
-const int NUM_RAIN_SENSORS      = 1;
-const int NUM_TOP_TRAPS         = 1;
+// ================== Timing Configuration (in milliseconds) ==================
+const unsigned long SENSOR_READ_INTERVAL_MS = 2000;
+const unsigned long DISPLAY_UPDATE_INTERVAL_MS = 10000;
+const unsigned long WIFI_CONNECT_TIMEOUT_MS = 30000;
+const unsigned long MAIN_LOOP_DELAY_MS = 100;
+const unsigned long MUX_SETTLE_DELAY_MS = 5;
 
-// ================== Status Variables (extern) ==================
-extern String doorStatus[NUM_OF_DOORS];
-extern String trapStatus;
-extern String pumpStatus[NUM_WATER_PUMPS];
-extern String fanStatus[NUM_FANS];
-extern String valveStatus[NUM_WATER_VALVES];
-extern String soilStatus[NUM_SOIL_SENSORS];
-extern String rainStatus;
-extern String climateStatus;
+// ================== SD Card Pin ==================
+// The default SPI CS pin is 10. This must not conflict with other hardware.
+const int SD_CS_PIN = 10;
 
-// ================== Pin Assignments ==================
 
-// --- DHT Sensor ---
+// ================== System Capacity Constants (No Change) ==================
+const int NUM_SOIL_SENSORS        = 3;
+const int NUM_OF_DOORS            = 2; // Linear actuators, assume 2 pins (relays) per door for extend/retract
+const int NUM_WATER_VALVES        = 3;
+const int NUM_WATER_PUMPS         = 3;
+const int NUM_WATER_FLOW_METERS   = 3; // NOW DEDICATED PINS, NOT MULTIPLEXED
+const int NUM_FANS                = 2;
+const int NUM_TEMP_SENSORS        = 2;
+const int NUM_RAIN_SENSORS        = 1;
+const int NUM_TOP_TRAPS           = 1; // Assume 2 pins (relays) for trap motor UP/DOWN
+
+
+// ================== DHT Sensor Pins (Direct Arduino Digital Inputs) ==================
 const uint8_t DHTTYPE = DHT22;
-const int TEMP_SENSOR_PINS[NUM_TEMP_SENSORS] = {2, 3}; // DHT22 sensors
-const int TEMP_SENSOR_PIN_INT = TEMP_SENSOR_PINS[0];
-const int TEMP_SENSOR_PIN_EXT = TEMP_SENSOR_PINS[1];
+const int TEMP_SENSOR_PINS[NUM_TEMP_SENSORS] = {2, 3}; // Digital pins D2, D3
+const int TEMP_SENSOR_PIN_INT = TEMP_SENSOR_PINS[0]; // Indoor DHT22
+const int TEMP_SENSOR_PIN_EXT = TEMP_SENSOR_PINS[1]; // Outdoor DHT22
 
-// --- Door Control ---
-const int DOOR_PINS[] = {13, 14, 15, 16}; // 2 pins per door, unique pins
-const int DOOR1_PIN_OPEN = DOOR_PINS[0];
-const int DOOR1_PIN_CLOSE = DOOR_PINS[1];
-const int DOOR2_PIN_OPEN = DOOR_PINS[2];
-const int DOOR2_PIN_CLOSE = DOOR_PINS[3];
 
-// --- Limit Switches ---
-const int DOOR_LIMIT_OPEN_PINS[NUM_OF_DOORS]   = {17, 18}; // Unique pins
-const int DOOR_LIMIT_CLOSED_PINS[NUM_OF_DOORS] = {19, 20}; // Unique pins
-const int DOOR1_LIMIT_PIN_OPEN = DOOR_LIMIT_OPEN_PINS[0];
-const int DOOR1_LIMIT_PIN_CLOSED = DOOR_LIMIT_CLOSED_PINS[0];
-const int DOOR2_LIMIT_PIN_OPEN = DOOR_LIMIT_OPEN_PINS[1];
-const int DOOR2_LIMIT_PIN_CLOSED = DOOR_LIMIT_CLOSED_PINS[1];
+// ================== Door Motor Pins (Controlled via PCF8574_2) ==================
+// Each linear actuator (door) typically needs 2 relay channels for extend/retract.
+// These will be controlled by the SECOND PCF8574 (PCF8574_2).
+const int PCF2_DOOR1_EXTEND_PIN  = 0; // PCF8574_2 Pin 0
+const int PCF2_DOOR1_RETRACT_PIN = 1; // PCF8574_2 Pin 1
+const int PCF2_DOOR2_EXTEND_PIN  = 2; // PCF8574_2 Pin 2
+const int PCF2_DOOR2_RETRACT_PIN = 3; // PCF8574_2 Pin 3
+const int PCF2_DOOR_PINS[NUM_OF_DOORS * 2] = {
+  PCF2_DOOR1_EXTEND_PIN, PCF2_DOOR1_RETRACT_PIN,
+  PCF2_DOOR2_EXTEND_PIN, PCF2_DOOR2_RETRACT_PIN
+};
+extern String doorStatus[NUM_OF_DOORS];
+// Door operation timeouts
+const unsigned long DOOR_MOVE_TIMEOUT_MS = 5000;
+const unsigned long DOOR_CLOSE_DELAY_MS = 2000;
 
-// --- Trap Control ---
-const int TRAP_UP_PIN   = 21; // Unique pin
-const int TRAP_DOWN_PIN = 22; // Unique pin
-const int TRAP_PINS[NUM_TOP_TRAPS * 2] = {TRAP_UP_PIN, TRAP_DOWN_PIN};
 
-// --- Multiplexer Channel Assignments ---
-// Soil moisture sensors (channels 0–2)
+
+// ================== Door Limit Switch Pins (Direct Arduino Digital Inputs) ==================
+// Using available general-purpose digital pins on the Arduino.
+// This configuration assumes 2 limit switches per door (one for open, one for closed),
+// totaling 4 limit switches for the 2 doors.
+const int DOOR_LIMIT_OPEN_PINS[NUM_OF_DOORS]   = {4, 5};  // Digital Pin D4 for Door 1 Open, D5 for Door 2 Open
+const int DOOR_LIMIT_CLOSED_PINS[NUM_OF_DOORS] = {6, 7};  // Digital Pin D6 for Door 1 Closed, D7 for Door 2 Closed
+
+
+// ================== Trap Motor Pins (Controlled via PCF8574_2) ==================
+// Assuming 2 pins for UP/DOWN control of the trap motor.
+// These will be controlled by the SECOND PCF8574 (PCF8574_2).
+const int PCF2_TRAP_UP_PIN   = 4; // PCF8574_2 Pin 4
+const int PCF2_TRAP_DOWN_PIN = 5; // PCF8574_2 Pin 5
+const int PCF2_TRAP_PINS[NUM_TOP_TRAPS * 2] = {PCF2_TRAP_UP_PIN, PCF2_TRAP_DOWN_PIN};
+extern String trapStatus;
+
+
+// ================== Multiplexer Pins (Direct Arduino Digital/Analog) ==================
+// Using available general-purpose digital pins for the multiplexer's select lines.
+// Analog pins A2 and A3 are used as digital I/O to avoid conflict with SPI pins (10, 11, 12, 13).
+// Analog pin A0 (D14) is used for the multiplexer's signal output.
+const int MUX_S0_PIN = 8;  // Digital Pin D8
+const int MUX_S1_PIN = 9;  // Digital Pin D9
+const int MUX_S2_PIN = A2; // Using Analog Pin A2 (D16) as Digital I/O
+const int MUX_S3_PIN = A3; // Using Analog Pin A3 (D17) as Digital I/O
+const int MUX_SIG_PIN = A0; // Analog Pin A0 (D14) - Input from multiplexer's common output
+
+
+// ================== PCF8574 I2C Expanders ==================
+// You need TWO PCF8574 modules to control 16 relay channels + door/trap motors.
+// Ensure you set the address jumpers on each PCF8574 module to be unique.
+const uint8_t PCF1_ADDR = 0x20; // Default I2C address for the first PCF8574
+const uint8_t PCF2_ADDR = 0x21; // I2C address for the second PCF8574 (adjust jumpers on module)
+
+// These are the dedicated I2C pins on the Arduino UNO R4 WiFi.
+const int PCF_SDA_PIN = A4; // Arduino I2C Data (also Qwiic SDA)
+const int PCF_SCL_PIN = A5; // Arduino I2C Clock (also Qwiic SCL)
+
+// Make pcf2 globally available for simple trap functions.
+// For classes, dependency injection will be used.
+extern Adafruit_PCF8574 pcf1; 
+extern Adafruit_PCF8574 pcf2;
+
+// ================== RTC I2C Address ==================
+// The DS3231 RTC has a fixed I2C address and is not configurable.
+// I2C address 0x68 often found on these modules belongs to the DS3231 RTC.
+// const uint8_t RTC_ADDR = 0x68;
+// The address 0x51 often found on these modules belongs to the separate EEPROM chip.
+const uint8_t RTC_ADDR = 0x51;
+
+
+// --- PCF8574_1 Pin Assignments (Valves, Pumps, Fans) ---
+// These assignments use the 8 pins of the first PCF8574.
+const int PCF1_VALVE1_PIN = 0; // PCF8574_1 Pin 0
+const int PCF1_VALVE2_PIN = 1; // PCF8574_1 Pin 1
+const int PCF1_VALVE3_PIN = 2; // PCF8574_1 Pin 2
+extern String valveStatus[NUM_WATER_VALVES];
+
+const int PCF1_PUMP1_PIN  = 3; // PCF8574_1 Pin 3
+const int PCF1_PUMP2_PIN  = 4; // PCF8574_1 Pin 4
+const int PCF1_PUMP3_PIN  = 5; // PCF8574_1 Pin 5
+extern String pumpStatus[NUM_WATER_PUMPS];
+
+const int PCF1_FAN1_PIN   = 6; // PCF8574_1 Pin 6
+const int PCF1_FAN2_PIN   = 7; // PCF8574_1 Pin 7
+extern String fanStatus[NUM_FANS];
+
+// --- PCF8574_1 Pin Arrays ---
+const int PCF1_VALVE_PINS[NUM_WATER_VALVES] = {PCF1_VALVE1_PIN, PCF1_VALVE2_PIN, PCF1_VALVE3_PIN};
+const int PCF1_PUMP_PINS[NUM_WATER_PUMPS]   = {PCF1_PUMP1_PIN, PCF1_PUMP2_PIN, PCF1_PUMP3_PIN};
+const int PCF1_FAN_PINS[NUM_FANS]           = {PCF1_FAN1_PIN, PCF1_FAN2_PIN};
+
+
+// ================== Water Flow Sensor Pins (Direct Arduino Digital Inputs) ==================
+// These pins should be configured for interrupts in your setup() to accurately count pulses.
+const int WATER_FLOW_METER_PINS[NUM_WATER_FLOW_METERS] = {12, 13, A1}; // Digital Pin D12, D13, Analog Pin A1 (D15)
+extern String flowStatus[NUM_WATER_FLOW_METERS];
+extern String mainFlowStatus;
+
+// Flow meter pulse counting variables
+extern volatile unsigned long flowPulseCount[NUM_WATER_FLOW_METERS];
+
+
+// ================== Other Sensor Channels (Multiplexer to MUX_SIG_PIN=A0) ==================
+// Now only includes Soil Sensors and Rain Sensor.
 const int SOIL_SENSOR1_MUX_CH = 0;
 const int SOIL_SENSOR2_MUX_CH = 1;
 const int SOIL_SENSOR3_MUX_CH = 2;
+extern String soilStatus[NUM_SOIL_SENSORS];
 
-// Water flow meters (channels 3–5)
-const int FLOW_METER1_MUX_CH = 3;
-const int FLOW_METER2_MUX_CH = 4;
-const int FLOW_METER3_MUX_CH = 5;
-
-// Rain sensor (channel 6)
-const int RAIN_SENSOR_MUX_CH = 6;
-
-// --- Remove old analog pin assignments for these sensors ---
-// const int SOIL_PINS[NUM_SOIL_SENSORS] = {A0, A1, A2};
-// const int SOIL_SENSOR1_PIN = SOIL_PINS[0];
-// const int SOIL_SENSOR2_PIN = SOIL_PINS[1];
-// const int SOIL_SENSOR3_PIN = SOIL_PINS[2];
-// const int FLOW_METER_PINS[NUM_WATER_FLOW_METERS] = {A3, A4, A5};
-// const int FLOW_METER1_PIN = FLOW_METER_PINS[0];
-// const int FLOW_METER2_PIN = FLOW_METER_PINS[1];
-// const int FLOW_METER3_PIN = FLOW_METER_PINS[2];
-// const int RAIN_SENSOR_PINS[NUM_RAIN_SENSORS] = {A5};
-
-// --- CD74HC4067 16-Channel Analog/Digital Multiplexer ---
-// S0–S3: Channel select pins (connect to any available digital pins)
-const int MUX_S0_PIN = 23; // Example pin, change as needed
-const int MUX_S1_PIN = 24;
-const int MUX_S2_PIN = 25;
-const int MUX_S3_PIN = 26;
-
-// SIG: Multiplexer signal pin (connect to an analog pin on Arduino)
-const int MUX_SIG_PIN = A0; // Example: use A0 if available
+const int RAIN_SENSOR_MUX_CH  = 3; // Rain sensor now on MUX channel 3
+extern String rainStatus;
 
 // ================== Threshold Values ==================
-const int   SOIL_THRESHOLD = 600;
-const float FAN_TEMP       = 28.0;
-const float FAN_HUM        = 75.0;
+const int   SOIL_THRESHOLD_DRY = 600; // Value above which irrigation starts
+// Hysteresis for pump control: pump turns off when sensor is wetter than this value.
+const int   SOIL_THRESHOLD_WET = 450; // Must be lower than SOIL_THRESHOLD_DRY
+const float FAN_TEMP_PRIMARY   = 28.0;
+const float FAN_HUM_PRIMARY    = 75.0;
+const float FAN_TEMP_SECONDARY = 33.0; // FAN_TEMP_PRIMARY + 5.0
+const float FAN_HUM_SECONDARY  = 85.0; // FAN_HUM_PRIMARY + 10.0
 
-// ================== PCF8574 I2C Expander ==================
-const uint8_t PCF_ADDR = 0x20;
-// --- PCF8574 I2C Expander Connection Pins ---
-const int PCF_SDA_PIN = A4; // I2C Data
-const int PCF_SCL_PIN = A5; // I2C Clock
-// --- PCF8574 Pin Assignments ---
-const int PCF_VALVE1_PIN = 0; // Valve 1 on PCF8574 pin 0
-const int PCF_VALVE2_PIN = 1; // Valve 2 on PCF8574 pin 1
-const int PCF_VALVE3_PIN = 2; // Valve 3 on PCF8574 pin 2
-const int PCF_PUMP1_PIN  = 3; // Pump 1 on PCF8574 pin 3
-const int PCF_PUMP2_PIN  = 4; // Pump 2 on PCF8574 pin 4
-const int PCF_PUMP3_PIN  = 5; // Pump 3 on PCF8574 pin 5
-const int PCF_FAN1_PIN   = 6; // Fan 1 on PCF8574 pin 6
-const int PCF_FAN2_PIN   = 7; // Fan 2 on PCF8574 pin 7
-
-// --- RTC DS3231 ---
-// Uses I2C bus: SDA (A4), SCL (A5)
+// ================== Sensor Validity Ranges ==================
+const int SOIL_SENSOR_MIN_VALID = 50;   // Min expected analog reading
+const int SOIL_SENSOR_MAX_VALID = 950;  // Max expected analog reading
+const int RAIN_SENSOR_MIN_VALID = 50;
+const int RAIN_SENSOR_MAX_VALID = 950;
+// A disconnected analog pin often floats to 0 or 1023. This range helps filter that out.
 
 // ================== Function Prototypes ==================
-void openDoor(int doorIndex);
-void closeDoor(int doorIndex);
-void stopDoor(int doorIndex);
-void doorUp(int doorIndex);
-void doorDown(int doorIndex);
-
-void openTrap();
-void closeTrap();
 void trapUp();
 void trapDown();
 void stopTrap();
 
-void controlFan(int fanIndex, bool state);
-void controlPump(int pumpIndex, bool state);
-void controlValve(int valveIndex, bool state);
+// ISRs for flow meters, defined in main.cpp
+void flowMeterISR0();
+void flowMeterISR1();
+void flowMeterISR2();
 
 #endif // CONFIG_H
