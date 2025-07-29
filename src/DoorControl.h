@@ -14,7 +14,10 @@ public:
     void up(int doorIndex);
     void down(int doorIndex);
     void stop(int doorIndex);
+    void resetErrors(int doorIndex);
 
 private:
     Adafruit_PCF8574& _pcf; // Store a reference to the provided PCF8574
+    int _errorCount[NUM_OF_DOORS];
+    bool _isDisabled[NUM_OF_DOORS];
 };

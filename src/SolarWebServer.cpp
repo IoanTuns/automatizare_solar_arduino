@@ -14,11 +14,14 @@
  * @param port The port number on which the web server will listen. Defaults to WEB_SERVER_PORT.
  */
 
-SolarWebServer::SolarWebServer(uint16_t port, PumpControl& pumpControl, DoorControl& doorControl, ClimateControl& climateControl)
+SolarWebServer::SolarWebServer(uint16_t port, PumpControl& pumpControl, DoorControl& doorControl, ClimateControl& climateControl, ValveControl& valveControl, TrapControl& trapControl, IrrigationControl& irrigationControl)
     : _server(port),
       _pumpControl(pumpControl),
       _doorControl(doorControl),
-      _climateControl(climateControl) {}
+      _valveControl(valveControl),
+      _climateControl(climateControl),
+      _trapControl(trapControl),
+      _irrigationControl(irrigationControl) {}
 
 /**
  * @brief Starts the web server and connects to a WiFi network.
@@ -100,28 +103,37 @@ void SolarWebServer::handleClient(const SensorData& sensors, const String& rtcTi
     String req = client.readStringUntil('\r');
     client.flush();
 
-    // Process commands
-    if      (req.indexOf("/pump1/on")  > 0) _pumpControl.set(0, true);
-    else if (req.indexOf("/pump1/off") > 0) _pumpControl.set(0, false);
-    if      (req.indexOf("/pump2/on")  > 0) _pumpControl.set(1, true);
-    else if (req.indexOf("/pump2/off") > 0) _pumpControl.set(1, false);
-    if      (req.indexOf("/pump3/on")  > 0) _pumpControl.set(2, true);
-    else if (req.indexOf("/pump3/off") > 0) _pumpControl.set(2, false);
+    // --- Scalable Command Processing ---
+    // Process irrigation zone commands using a loop
+    for (int i = 0; i < NUM_IRRIGATION_ZONES; i++) {
+        if (req.indexOf("/zone/" + String(i + 1) + "/on") > 0) _irrigationControl.manualControl(i, true);
+        else if (req.indexOf("/zone/" + String(i + 1) + "/off") > 0) _irrigationControl.manualControl(i, false);
+    }
 
-    if      (req.indexOf("/fan/on")    > 0) _climateControl.controlFan(0, true);
-    else if (req.indexOf("/fan/off")   > 0) _climateControl.controlFan(0, false);
+    // Process fan commands using a loop
+    for (int i = 0; i < NUM_FANS; i++) {
+        if (req.indexOf("/fan/" + String(i + 1) + "/on") > 0) _climateControl.controlFan(i, true);
+        else if (req.indexOf("/fan/" + String(i + 1) + "/off") > 0) _climateControl.controlFan(i, false);
+    }
 
     // Trap controls
-    if      (req.indexOf("/trap/up")   > 0) trapUp();
-    else if (req.indexOf("/trap/down") > 0) trapDown();
-    else if (req.indexOf("/trap/stop") > 0) stopTrap();
+    if      (req.indexOf("/trap/open") > 0) _trapControl.open();
+    else if (req.indexOf("/trap/close")> 0) _trapControl.close();
+    else if (req.indexOf("/trap/up")   > 0) _trapControl.up();
+    else if (req.indexOf("/trap/down") > 0) _trapControl.down();
+    else if (req.indexOf("/trap/stop") > 0) _trapControl.stop();
+    else if (req.indexOf("/trap/reset") > 0) _trapControl.resetErrors();
 
-    // Individual door controls
-    if      (req.indexOf("/door/open") > 0) _doorControl.open(0);
-    else if (req.indexOf("/door/close")> 0) _doorControl.close(0);
-    else if (req.indexOf("/door/up") > 0) _doorControl.up(0);
-    else if (req.indexOf("/door/down") > 0) _doorControl.down(0);
-    else if (req.indexOf("/door/stop") > 0) _doorControl.stop(0);
+    // Scalable door controls
+    for (int i = 0; i < NUM_OF_DOORS; i++) {
+        String p = "/door/" + String(i + 1);
+        if      (req.indexOf(p + "/open") > 0) _doorControl.open(i);
+        else if (req.indexOf(p + "/close") > 0) _doorControl.close(i);
+        else if (req.indexOf(p + "/up") > 0) _doorControl.up(i);
+        else if (req.indexOf(p + "/down") > 0) _doorControl.down(i);
+        else if (req.indexOf(p + "/stop") > 0) _doorControl.stop(i);
+        else if (req.indexOf(p + "/reset") > 0) _doorControl.resetErrors(i);
+    }
 
     // Send HTML response
     client.println("HTTP/1.1 200 OK");
@@ -132,40 +144,39 @@ void SolarWebServer::handleClient(const SensorData& sensors, const String& rtcTi
         <html lang="en">
         <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
         <title>Solar Control Panel</title>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap">
         <style>
             body {
             font-family: 'Roboto', Arial, sans-serif;
-            margin: 0; padding: 0;
+            margin: 0;
+            padding: 0;
             background: #e9f5ff;
             color: #222;
+            padding-top: 60px; /* Space for the fixed top bar */
             }
             .container {
             max-width: 900px;
-            margin: auto;
+            margin: 0 auto;
             padding: 16px;
             }
             h1 {
             text-align: center;
             color: #007BFF;
-            margin-bottom: 16px;
+            margin-top: 0; /* Remove default top margin */
+            margin-bottom: 24px;
             }
             .grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 16px;
-            justify-content: center;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
             }
             .card {
             background: #fff;
             border-radius: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             padding: 20px;
-            flex: 1 1 260px;
-            min-width: 260px;
-            max-width: 350px;
             margin-bottom: 16px;
             }
             .card h2 {
@@ -204,7 +215,6 @@ void SolarWebServer::handleClient(const SensorData& sensors, const String& rtcTi
             .btn.stop { background: #6c757d; }
             .btn.stop:active { background: #495057; }
             @media (max-width: 600px) {
-                .grid { flex-direction: column; gap: 0; }
                 .card { margin-bottom: 20px; }
                 .btn { min-width: 110px; width: auto; margin: 8px 4px; }
             }
@@ -218,104 +228,256 @@ void SolarWebServer::handleClient(const SensorData& sensors, const String& rtcTi
             @media (max-width: 700px) {
                 .row-flex { flex-direction: column; gap: 0; }
             }
+            .modal {
+                display: none; /* Hidden by default */
+                position: fixed; /* Stay in place */
+                z-index: 1000;
+                left: 0; top: 0;
+                width: 100%; height: 100%;
+                overflow: auto; /* Enable scroll if needed */
+                background-color: rgba(0,0,0,0.5); /* Black w/ opacity */
+                padding-top: 60px;
+            }
+            .modal-content {
+                background-color: #fefefe;
+                margin: 5% auto;
+                padding: 20px;
+                border: 1px solid #888;
+                border-radius: 12px;
+                width: 80%;
+                max-width: 500px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            }
+            .close-button {
+                color: #aaa;
+                float: right;
+                font-size: 28px;
+                font-weight: bold;
+            }
+            .close-button:hover,
+            .close-button:focus {
+                color: black;
+                text-decoration: none;
+                cursor: pointer;
+            }
+            .top-bar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                background: #007BFF;
+                color: white;
+                padding: 10px 20px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                z-index: 1001;
+                box-sizing: border-box;
+            }
+            .top-bar a.btn {
+                margin: 0;
+                background: #fff;
+                color: #007BFF;
+                font-weight: bold;
+            }
+            .top-bar-time {
+                font-size: 0.9em;
+            }
+            .top-bar-left {
+                display: flex;
+                align-items: center;
+                gap: 24px;
+            }
+            .top-bar-status {
+                font-size: 0.9em;
+                font-weight: bold;
+                padding: 4px 10px;
+                border-radius: 12px;
+                background-color: rgba(255, 255, 255, 0.2);
+            }
+            .top-bar-status.rain {
+                background-color: #ffc107;
+                color: #333;
+            }
+            .zone-grid { display: flex; flex-direction: column; gap: 16px; }
+            .zone-control { border: 1px solid #eee; padding: 12px; border-radius: 8px; }
+            .zone-control h4 { margin-top: 0; margin-bottom: 8px; color: #333; }
+            .zone-control .status { font-size: 1em; font-weight: normal; color: #555; }
+            .zone-control .status b { font-weight: bold; color: #333;
+            }
         </style>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                const modal = document.getElementById('infoModal');
+                const infoBtn = document.getElementById('infoBtn');
+                const closeBtn = document.querySelector('.close-button');
+
+                // Show the modal when the info button is clicked
+                infoBtn.onclick = function(e) {
+                    e.preventDefault(); // Prevent page jump from '#' href
+                    modal.style.display = 'block';
+                }
+
+                // Hide the modal when the close button is clicked
+                closeBtn.onclick = function() {
+                    modal.style.display = 'none';
+                }
+
+                // Hide modal if user clicks on the background overlay
+                window.onclick = function(event) {
+                    if (event.target == modal) { modal.style.display = 'none'; }
+                }
+            });
+            // Auto-refresh the page every 10 seconds to keep data fresh
+            setTimeout(() => { window.location.reload(); }, 10000);
+        </script>
         </head>
         <body>
+        <div class="top-bar">
+            <div class="top-bar-left">
+                <div class='top-bar-time'><b>Date & Time:</b> )rawliteral");
+    client.print(rtcTime);
+    client.println(R"rawliteral(</div>)rawliteral");
+    String rainStatusClass = (rainStatus == "raining") ? " rain" : "";
+    client.print("<div class='top-bar-status" + rainStatusClass + "'><b>Rain:</b> ");
+    client.print(rainStatus);
+    client.println(R"rawliteral(</div>
+            </div>
+    )rawliteral");
+    client.println(R"rawliteral(
+            <a href="#" id="infoBtn" class="btn">System Info</a>
+        </div>
+        <!-- The Modal -->
+        <div id="infoModal" class="modal">
+          <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>System Initialization</h2>)rawliteral");
+    client.println("<p><strong>Firmware Version:</strong> " + String(FIRMWARE_VERSION) + "</p>");
+    client.println("<p><strong>Build Environment:</strong> " + String(BUILD_ENV_NAME) + "</p>");
+    client.println(R"rawliteral(<hr style='border:none;border-top:1px solid #eee;margin:16px 0;'><h3>WiFi Connection</h3>)rawliteral");
+    if (WiFi.status() == WL_CONNECTED) {
+        client.println("<p><strong>Status:</strong> <span class='status ok'>Connected</span></p>");
+        client.println(String("<p><strong>SSID:</strong> ") + WiFi.SSID() + "</p>");
+        client.println("<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>");
+        client.println("<p><strong>Signal Strength:</strong> " + String(WiFi.RSSI()) + " dBm</p>");
+    } else {
+        client.println("<p><strong>Status:</strong> <span class='status err'>Offline Mode</span></p>");
+        client.println("<p><em>WiFi details not available.</em></p>");
+    }
+    client.println(R"rawliteral(<hr style='border:none;border-top:1px solid #eee;margin:16px 0;'><h3>I2C Devices</h3>)rawliteral");
+    client.println("<p>" + i2cScanResults + "</p>");
+    client.println(R"rawliteral(<hr style='border:none;border-top:1px solid #eee;margin:16px 0;'><h3>Hardware Status</h3>)rawliteral");
+    client.print("<p><strong>RTC (Clock):</strong> ");
+    client.println(rtcStatus ? "<span class='status ok'>OK</span></p>" : "<span class='status err'>Not Found</span></p>");
+    client.print("<p><strong>SD Card:</strong> ");
+    client.println(sdStatus ? "<span class='status ok'>OK</span></p>" : "<span class='status err'>Not Found</span></p>");
+    client.print("<p><strong>PCF8574_1 (0x20):</strong> ");
+    client.println(pcf1Status ? "<span class='status ok'>OK</span></p>" : "<span class='status err'>Not Found</span></p>");
+    client.print("<p><strong>PCF8574_2 (0x21):</strong> ");
+    client.println(pcf2Status ? "<span class='status ok'>OK</span></p>" : "<span class='status err'>Not Found</span></p>");
+    client.print("<p><strong>Multiplexer (MUX):</strong> ");
+    client.println(muxStatus ? "<span class='status ok'>OK</span></p>" : "<span class='status err'>Failed/Check Wiring</span></p>");
+    client.println(R"rawliteral(
+          </div>
+        </div>
         <div class="container">
-            <h1>☀️ Solar Control Panel</h1>  
-            <div><b>Date & Time:</b> )rawliteral"); client.print(rtcTime); client.println("</div>");
-            client.println(R"rawliteral(
+            <h1>☀️ Solar Control Panel</h1>)rawliteral");
+    client.println(R"rawliteral(
             <div class="grid">
+
+            <!-- Climate and Humidity Card -->
             <div class="card">
-                <h2><span class="icon">🌡️</span>Climate and Humidity</h2>
-                <div class="status ok"><b>Temperature Interior:</b> )rawliteral"); client.print(sensors.tempInt, 1); client.println(" &deg;C</div>");
-                client.println(R"rawliteral(
-                        <div class="status ok"><b>Temperature Exterior:</b> )rawliteral"); client.print(sensors.tempExt, 1); client.println(" &deg;C</div>");
-                client.println(R"rawliteral(
-                        <div class="status ok"><b>Humidity Interior:</b> )rawliteral"); client.print(sensors.humInt, 1); client.println(" %</div>");
-                client.println(R"rawliteral(
-                        <div class="status ok"><b>Humidity Exterior:</b> )rawliteral"); client.print(sensors.humExt, 1); client.println(" %</div>");
-                client.println(R"rawliteral(
-            </div>
-            <div class="card">
-                <h2><span class="icon">🌱</span>Soil Moisture</h2>
-                <div class="status"
-                ><b>Soil 1:</b> )rawliteral"); client.print(soilStatus[0]); client.println(" ("); client.print(sensors.soilMoisture[0]); client.println(")</div>");
-    client.println(R"rawliteral(
-                <div class="status"><b>Soil 2:</b> )rawliteral"); client.print(soilStatus[1]); client.println(" ("); client.print(sensors.soilMoisture[1]); client.println(")</div>");
-    client.println(R"rawliteral(
-                <div class="status"><b>Soil 3:</b> )rawliteral"); client.print(soilStatus[2]); client.println(" ("); client.print(sensors.soilMoisture[2]); client.println(")</div>");
+                <h2><span class="icon">🌡️</span>Climate &amp; Humidity</h2>)rawliteral");
+    client.print("<div class='status ok'><b>Temp Interior:</b> "); client.print(sensors.tempInt, 1); client.println(" &deg;C</div>");
+    client.print("<div class='status ok'><b>Temp Exterior:</b> "); client.print(sensors.tempExt, 1); client.println(" &deg;C</div>");
+    client.print("<div class='status ok'><b>Humid Interior:</b> "); client.print(sensors.humInt, 1); client.println(" %</div>");
+    client.print("<div class='status ok'><b>Humid Exterior:</b> "); client.print(sensors.humExt, 1); client.println(" %</div>");
     client.println(R"rawliteral(
             </div>
 
+            <!-- Soil Moisture Card -->
             <div class="card">
-                <h2><span class="icon">💧</span>Irrigation Pumps</h2>
-                <div class="row-flex">
-                    <div style="flex:1; min-width:150px;">
-                        <h3><span class="icon">🚿</span>Valves Status</h3>
-                        <div><b>Valve 1:</b> )rawliteral"); client.print(valveStatus[0]); client.println("</div>");
-                        client.println(R"rawliteral(
-                                        <div><b>Valve 2:</b> )rawliteral"); client.print(valveStatus[1]); client.println("</div>");
-                        client.println(R"rawliteral(
-                                        <div><b>Valve 3:</b> )rawliteral"); client.print(valveStatus[2]); client.println("</div>");
-                        client.println(R"rawliteral(
-                    </div>
-                    <div style="flex:1; min-width:150px;">
-                        <h3><span class="icon">🛢️</span>Pumps</h3>
-                        <div><b>Pump 1:</b> )rawliteral"); client.print(pumpStatus[0]); client.println("</div>");
-                        client.println(R"rawliteral(
-                                        <div><b>Pump 2:</b> )rawliteral"); client.print(pumpStatus[1]); client.println("</div>");
-                        client.println(R"rawliteral(
-                                        <div><b>Pump 3:</b> )rawliteral"); client.print(pumpStatus[2]); client.println("</div>");
-                        client.println(R"rawliteral(
-                    </div>
-                </div>
-                <a href="/pump1/on"  class="btn">Pump 1 ON</a>
-                <a href="/pump1/off" class="btn off">Pump 1 OFF</a><br>
-                <a href="/pump2/on"  class="btn">Pump 2 ON</a>
-                <a href="/pump2/off" class="btn off">Pump 2 OFF</a><br>
-                <a href="/pump3/on"  class="btn">Pump 3 ON</a>
-                <a href="/pump3/off" class="btn off">Pump 3 OFF</a>
+                <h2><span class="icon">🌱</span>Soil Moisture</h2>)rawliteral");
+    for (int i = 0; i < NUM_SOIL_SENSORS; i++) {
+        client.print("<div class='status'><b>Soil " + String(i + 1) + ":</b> " + soilStatus[i] + " (" + String(sensors.soilMoisture[i]) + ")</div>");
+    }
+    client.println(R"rawliteral(
             </div>
 
+            <!-- Irrigation Control Card -->
             <div class="card">
-                <h2><span class="icon">🌀</span>Fans</h2>
-                <div class="status"><b>Fan 1:</b> )rawliteral"); client.print(fanStatus[0]); client.println("</div>");
+                <h2><span class="icon">💧</span>Irrigation Control</h2>
+                <div class="zone-grid">)rawliteral");
+    for (int i = 0; i < NUM_IRRIGATION_ZONES; i++) {
+        const IrrigationZone& zone = IRRIGATION_ZONES[i];
+        String zoneNum = String(i + 1);
+        client.println("<div class='zone-control'>");
+        client.println("<h4>Zone " + zoneNum + "</h4>");
+        client.println("<div class='status'><b>Soil:</b> " + soilStatus[zone.soilSensorIndex] + " (" + String(sensors.soilMoisture[zone.soilSensorIndex]) + ")</div>");
+        client.println("<div class='status'><b>Pump " + String(zone.pumpIndex + 1) + ":</b> " + pumpStatus[zone.pumpIndex] + "</div>");
+        client.println("<div class='status'><b>Valve " + String(zone.valveIndex + 1) + ":</b> " + valveStatus[zone.valveIndex] + "</div>");
+        client.print("<div><a href='/zone/" + zoneNum + "/on' class='btn'>ON</a>");
+        client.print("<a href='/zone/" + zoneNum + "/off' class='btn off'>OFF</a></div>");
+        client.println("</div>");
+    }
     client.println(R"rawliteral(
-                <div class="status"><b>Fan 2:</b> )rawliteral"); client.print(fanStatus[1]); client.println("</div>");
-    client.println(R"rawliteral(
-                <a href="/fan/on"  class="btn">Fan ON</a>
-                <a href="/fan/off" class="btn off">Fan OFF</a>
-            </div>
-
-            <div class="card">
-                <h2><span class="icon">🪟</span>Ventilation Trap</h2>
-                <div class="status"><b>Trap:</b> )rawliteral"); client.print(trapStatus); client.println("</div>");
-    client.println(R"rawliteral(
-                <a href="/trap/up"    class="btn up">Up</a>
-                <a href="/trap/stop"  class="btn stop">Stop</a>
-                <a href="/trap/down"  class="btn down">Down</a>
-            </div>
-
-            <div class="card">
-                <h2><span class="icon">🚪</span>Doors</h2>
-                <div class="status"><b>Door 1:</b> )rawliteral"); client.print(doorStatus[0]); client.println("</div>");
-    client.println(R"rawliteral(
-                <div class="status"><b>Door 2:</b> )rawliteral"); client.print(doorStatus[1]); client.println("</div>");
-    client.println(R"rawliteral(
-                <a href="/door/open"  class="btn">Open Door</a>
-                <a href="/door/close" class="btn off">Close Door</a>
-                <div>
-                    <a href="/door/up"    class="btn up">Up</a>
-                    <a href="/door/stop"  class="btn stop">Stop</a>
-                    <a href="/door/down"  class="btn down">Down</a>
                 </div>
             </div>
 
+            <!-- Fans Card -->
             <div class="card">
-                <h2><span class="icon">🌧️</span>Rain</h2>
-                <div class="status"><b>Rain:</b> )rawliteral"); client.print(rainStatus); client.print(" ("); client.print(sensors.rainSensorValue); client.println(")"); client.println("</div>");
-    client.println(R"rawliteral(        </div>
+                <h2><span class="icon">🌀</span>Fans</h2>)rawliteral");
+    for (int i = 0; i < NUM_FANS; i++) {
+        String fanNum = String(i + 1);
+        String p = "/fan/" + fanNum;
+        if (i > 0) client.println("<hr style='border:none;border-top:1px solid #eee;margin:16px 0;'>");
+        client.println("<h4>Fan " + fanNum + "</h4>");
+        client.println("<div class='status'><b>Status:</b> " + fanStatus[i] + "</div>");
+        client.println("<div><a href='" + p + "/on' class='btn'>ON</a><a href='" + p + "/off' class='btn off'>OFF</a></div>");
+    }
+    client.println(R"rawliteral(
+            </div>
+
+            <!-- Ventilation Trap Card -->
+            <div class="card">
+                <h2><span class="icon">🪟</span>Ventilation Trap</h2>)rawliteral");
+    client.println("<div class='status'><b>Status:</b> " + trapStatus + "</div>");
+    if (trapStatus == "error" || trapStatus == "disabled") {
+        client.println("<div><a href='/trap/reset' class='btn stop'>Reset Errors</a></div>");
+    }
+    client.println(R"rawliteral(
+                <div><a href='/trap/open' class='btn'>Auto Open</a><a href='/trap/close' class='btn off'>Auto Close</a></div>
+                <div><a href='/trap/up' class='btn up'>Manual Up</a><a href='/trap/stop' class='btn stop'>Manual Stop</a><a href='/trap/down' class='btn down'>Manual Down</a></div>
+    )rawliteral");
+    client.println(R"rawliteral(
+            </div>
+
+            <!-- Doors Card -->
+            <div class="card">
+                <h2><span class="icon">🚪</span>Doors</h2>)rawliteral");
+    for (int i = 0; i < NUM_OF_DOORS; i++) {
+        String doorNum = String(i + 1);
+        String p = "/door/" + doorNum;
+        if (i > 0) client.println("<hr style='border:none;border-top:1px solid #eee;margin:16px 0;'>");
+        client.println("<h4>Door " + doorNum + "</h4>");
+
+        String statusClass = "";
+        if (doorStatus[i] == "error" || doorStatus[i] == "disabled") {
+            statusClass = " err";
+        } else if (doorStatus[i] == "moving" || doorStatus[i] == "stopped") {
+            statusClass = " warn";
+        }
+        client.println("<div class='status" + statusClass + "'><b>Status:</b> " + doorStatus[i] + "</div>");
+
+        if (doorStatus[i] == "error" || doorStatus[i] == "disabled") {
+            client.println("<div><a href='" + p + "/reset' class='btn stop'>Reset Errors</a></div>");
+        }
+        client.println("<div><a href='" + p + "/open' class='btn'>Auto Open</a><a href='" + p + "/close' class='btn off'>Auto Close</a></div>");
+        client.println("<div><a href='" + p + "/up' class='btn up'>Manual Up</a><a href='" + p + "/stop' class='btn stop'>Manual Stop</a><a href='" + p + "/down' class='btn down'>Manual Down</a></div>");
+    }
+    client.println(R"rawliteral(
+            </div>
 
         </div>
         <div style="text-align:center; margin-top:24px; color:#888;">

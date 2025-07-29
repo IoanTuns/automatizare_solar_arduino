@@ -17,6 +17,7 @@
 #include "ValveControl.h"   // Needs to be updated to use pcf1
 #include "IrrigationControl.h"
 #include "ClimateControl.h" // Needs to be updated to use pcf1
+#include "TrapControl.h"
 
 // ======================================================================
 // GLOBAL VARIABLES & INSTANCES (UPDATED)
@@ -31,8 +32,7 @@ DHT dhtInt(TEMP_SENSOR_PIN_INT, DHTTYPE);
 DHT dhtExt(TEMP_SENSOR_PIN_EXT, DHTTYPE);
 
 // RTC instance
-RTC_DS3231 rtc;
-bool rtcInitialized = false;
+RTC_DS3231 rtc; // RTC status is now a global in config.h/cpp
 
 // PCF8574 instances (TWO are now required based on config)
 // pcf1 for Valves, Pumps, Fans
@@ -67,14 +67,18 @@ void flowMeterISR2() {
 // We now create the control objects by passing them the hardware controllers
 // they need. This is a robust and modular design.
 
+// Create an array of PCF expander pointers to pass to controllers
+Adafruit_PCF8574* pcf_expanders[] = {&pcf1, &pcf2};
+
 DoorControl doorControl(pcf2); // Doors are on pcf2
 PumpControl pumpControl(pcf1); // Pumps are on pcf1
-ValveControl valveControl(pcf1); // Valves are on pcf1
+ValveControl valveControl(pcf_expanders); // Valves can be on pcf1 or pcf2
 ClimateControl climateControl(pcf1); // Fans are on pcf1
+TrapControl trapControl(pcf2); // Trap is on pcf2
 IrrigationControl irrigationControl(valveControl, pumpControl); // Irrigation needs valves and pumps
 
 // Web server instance (now requires control objects)
-SolarWebServer webServer(WEB_SERVER_PORT, pumpControl, doorControl, climateControl);
+SolarWebServer webServer(WEB_SERVER_PORT, pumpControl, doorControl, climateControl, valveControl, trapControl, irrigationControl);
 
 
 // ======================================================================
@@ -177,12 +181,10 @@ String getFormattedDateTime(const DateTime& dt) {
            formatTwoDigits(dt.second());
 }
 
-// SD card chip select pin is defined in config.h as SD_CS_PIN
-bool sdInitialized = false;
-
 // Function to log data to SD card (UPDATED: Added flow and rain data)
-void logData(const SensorData& data, bool sdInitialized) {
-  if (!sdInitialized) {
+void logData(const SensorData& data) {
+  // Use the global sdStatus flag from config.h/cpp
+  if (!sdStatus) {
     Serial.println("SD card not initialized. Skipping data logging.");
     return;
   }
@@ -236,34 +238,63 @@ void setup() {
   // --- I2C Scanner for Diagnostics ---
   // This will help identify which I2C devices are responding.
   Serial.println("Scanning I2C bus...");
+  i2cScanResults = ""; // Clear previous results for web display
   byte error, address;
   int nDevices = 0;
   for (address = 1; address < 127; address++) {
     Wire.beginTransmission(address);
     error = Wire.endTransmission();
     if (error == 0) {
-      Serial.print("I2C device found at address 0x");
+      String deviceLine = "Found device at 0x";
       if (address < 16) {
-        Serial.print("0");
+        deviceLine += "0";
       }
-      Serial.println(address, HEX);
+      deviceLine += String(address, HEX);
+
+      // Add descriptive name for known devices
+      deviceLine += " (";
+      switch (address) {
+        case PCF1_ADDR:
+          deviceLine += "PCF8574_1 - Valves/Pumps/Fans";
+          break;
+        case PCF2_ADDR:
+          deviceLine += "PCF8574_2 - Doors/Trap";
+          break;
+        case RTC_CLOCK_ADDR:
+          deviceLine += "RTC Module Clock (DS3231)";
+          break;
+        case RTC_EEPROM_ADDR:
+          deviceLine += "RTC Module EEPROM";
+          break;
+        default:
+          deviceLine += "Unknown Device";
+          break;
+      }
+      deviceLine += ")";
+
+      Serial.println(deviceLine);
+      i2cScanResults += deviceLine + "<br>"; // Append for HTML display
       nDevices++;
     } else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
+      String errorLine = "Unknown error at address 0x";
       if (address < 16) {
-        Serial.print("0");
+        errorLine += "0";
       }
-      Serial.println(address, HEX);
+      errorLine += String(address, HEX);
+      Serial.println(errorLine);
     }
   }
   if (nDevices == 0) {
-    Serial.println("No I2C devices found. Please check wiring and power.");
+    String noDeviceMsg = "No I2C devices found. Please check wiring and power.";
+    Serial.println(noDeviceMsg);
+    i2cScanResults = noDeviceMsg;
   }
   Serial.println("I2C scan complete.\n");
 
   // Initialize both PCF8574 expanders based on their addresses from config.h
   Serial.print("Initializing PCF8574_1 at 0x"); Serial.println(PCF1_ADDR, HEX);
-  if (!pcf1.begin(PCF1_ADDR)) {
+  pcf1Status = pcf1.begin(PCF1_ADDR);
+  if (!pcf1Status) {
     Serial.println("ERROR: PCF8574_1 not found! Check wiring.");
   } else {
     Serial.println("PCF8574_1 OK. Setting initial pin states...");
@@ -276,7 +307,8 @@ void setup() {
   }
 
   Serial.print("Initializing PCF8574_2 at 0x"); Serial.println(PCF2_ADDR, HEX);
-  if (!pcf2.begin(PCF2_ADDR)) {
+  pcf2Status = pcf2.begin(PCF2_ADDR);
+  if (!pcf2Status) {
     Serial.println("ERROR: PCF8574_2 not found! Check wiring.");
   } else {
     Serial.println("PCF8574_2 OK. Setting initial pin states...");
@@ -286,9 +318,17 @@ void setup() {
     }
   }
 
-  DateTime startTime = HardwareInit::initializeRTC(rtc, true); // `true` sets the time on first boot/power loss
-  rtcInitialized = startTime.isValid();
-  sdInitialized = HardwareInit::initializeSD(SD_CS_PIN);
+  // Initialize RTC and SD card, updating global status flags
+  DateTime startTime = HardwareInit::initializeRTC(rtc, true);
+  rtcStatus = startTime.isValid();
+  sdStatus = HardwareInit::initializeSD(SD_CS_PIN);
+
+  // Validate the multiplexer using the new test function
+  muxStatus = HardwareInit::validateMux();
+
+  // Initialize trap limit switch pins
+  pinMode(TRAP_LIMIT_OPEN_PIN, INPUT_PULLUP);
+  pinMode(TRAP_LIMIT_CLOSED_PIN, INPUT_PULLUP);
 
   webServer.begin(ssid, pass);
   HardwareInit::initializePins(); // Call our customized pin initialization
@@ -307,7 +347,7 @@ void loop() {
 
   // Create a formatted date/time string, handling RTC errors
   String rtcTimeString;
-  if (rtcInitialized) {
+  if (rtcStatus) {
     rtcTimeString = getFormattedDateTime(rtc.now());
   } else {
     rtcTimeString = "RTC Error: Not Found";
@@ -318,7 +358,7 @@ void loop() {
     if (!sensors.valid) {
       Serial.println("WARNING: Invalid DHT sensor readings!");
     } else {
-      logData(sensors, sdInitialized);
+      logData(sensors);
     }
   }
 
@@ -337,7 +377,7 @@ void loop() {
 
   // System display update: Pass all relevant sensor data
   // Pass the RTC status and the pre-formatted time string
-  SystemDisplay::displayStatus(sensors, rtcInitialized, rtcTimeString);
+  SystemDisplay::displayStatus(sensors, rtcStatus, rtcTimeString);
 
   delay(100); // Small delay to prevent busy-looping
 }

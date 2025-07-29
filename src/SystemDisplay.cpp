@@ -3,7 +3,7 @@
 // Initialize static member
 unsigned long SystemDisplay::lastDisplay = 0;
 
-void SystemDisplay::displayStatus(const SensorData& sensors, bool rtcInitialized, const String& rtcTimeString) {
+void SystemDisplay::displayStatus(const SensorData& sensors, bool rtcStatus, const String& rtcTimeString) {
   if (millis() - lastDisplay < 10000) return; // Display every 10 seconds
   
   Serial.println("=== System Status ===");

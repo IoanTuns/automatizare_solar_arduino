@@ -3,8 +3,9 @@
 ## Used Components
 
 - **Arduino UNO R4 WiFi**
-- **DHT22 (AM2302)** – indoor/outdoor
-- **Soil moisture sensors (capacitive)**
+- **DHT22 (AM2302) Temperature/Humidity Sensor x2**
+- **CD74HC4067 16-Channel Analog/Digital Multiplexer** – indoor/outdoor
+- **Soil moisture sensors (capacitive) x3**
 - **RTC DS3231**
 - **I/O Expander PCF8574 (I²C) x2**
 - **16-channel relay module**
@@ -16,8 +17,8 @@
 - **12 V 45 Ah battery**
 - **DC-DC converter 12→5 V (MP1584EN)**
 - **LCD 16×2 I²C (Stemma QT)**
-- **Water flow sensor Yf-S201 G1/2 1-30L/min**
-- **Water/air solenoid valve DC 12V**
+- **Water flow sensor Yf-S201 G1/2 1-30L/min x3**
+- **Water/air solenoid valve DC 12V x3**
 
 ## Pin Assignments and Functions
 
@@ -40,6 +41,7 @@
 | A0               | `MUX_SIG_PIN`               | Multiplexer signal output (analog read)       |
 | A2               | `MUX_S2_PIN`                | Multiplexer select S2                         |
 | A3               | `MUX_S3_PIN`                | Multiplexer select S3                         |
+| GND              | MUX `EN` Pin                | Multiplexer Enable (must be tied to GND)      |
 | A4 (SDA)         | `PCF_SDA_PIN`               | I2C Data for PCF8574s, RTC, and LCD           |
 | A5 (SCL)         | `PCF_SCL_PIN`               | I2C Clock for PCF8574s, RTC, and LCD          |
 | **Multiplexer (MUX) Channels** | | |
@@ -47,6 +49,8 @@
 | MUX CH 1         | `SOIL_SENSOR2_MUX_CH`       | Soil Moisture Sensor 2                        |
 | MUX CH 2         | `SOIL_SENSOR3_MUX_CH`       | Soil Moisture Sensor 3                        |
 | MUX CH 3         | `RAIN_SENSOR_MUX_CH`        | Rain Sensor                                   |
+| MUX CH 14        | `MUX_TEST_VCC_CH`           | Multiplexer Test Channel (connect to 5V)      |
+| MUX CH 15        | `MUX_TEST_GND_CH`           | Multiplexer Test Channel (connect to GND)     |
 | **I2C Expander PCF1 (Address 0x20)** | | |
 | PCF1 Pin 0       | `PCF1_VALVE1_PIN`           | Water Valve 1                                 |
 | PCF1 Pin 1       | `PCF1_VALVE2_PIN`           | Water Valve 2                                 |
@@ -109,6 +113,24 @@
 ## I2C Devices
 
 - PCF8574 and RTC DS3231 share the I2C bus (A4: SDA, A5: SCL).
+
+## Troubleshooting
+
+### Multiplexer (MUX) Validation Fails
+
+If the "System Info" modal shows that the Multiplexer status is "Failed/Check Wiring", it means the startup self-test did not pass. This is almost always a hardware wiring issue.
+
+1.  **Check the `EN` (Enable) Pin:** This is the most common cause. The `EN` pin on the CD74HC4067 board **must be connected to GND** for the chip to be active. If it is left unconnected, the MUX will be disabled.
+2.  **Check Test Channel Wiring:** The self-test relies on two specific channels being connected to known voltages.
+    -   Verify that **Channel 14** on the MUX is firmly connected to a **5V** pin on the Arduino.
+    -   Verify that **Channel 15** on the MUX is firmly connected to a **GND** pin on the Arduino.
+3.  **Check MUX Power:** Ensure the MUX board itself is receiving power. It needs its own `VCC` pin connected to **5V** and its own `GND` pin connected to **GND** on the Arduino.
+4.  **Check Select Pins:** Verify that the MUX select pins (`S0`-`S3`) are correctly wired to the Arduino pins defined in `config.h` (D8, D9, A2, A3).
+
+### SD Card Not Detected
+
+- Verify that the SD card module is wired to the correct SPI pins (10-13).
+- Ensure the card is formatted as FAT16 or FAT32.
 
 ## Notes
 

@@ -4,39 +4,63 @@
 IrrigationControl::IrrigationControl(ValveControl& valveControl, PumpControl& pumpControl)
     : valveControl(valveControl), pumpControl(pumpControl) {}
 
+/**
+ * @brief Manages the irrigation logic for a single zone.
+ * @param zone A reference to the IrrigationZone configuration struct.
+ * @param sensors A reference to the latest sensor data.
+ * @return true if the zone requires water, false otherwise.
+ */
+bool IrrigationControl::controlZone(const IrrigationZone& zone, const SensorData& sensors) {
+    int sensorValue = sensors.soilMoisture[zone.soilSensorIndex];
+    bool needsWater = false;
+
+    // Implement hysteresis to prevent the pump from rapidly cycling.
+    // If the pump for this zone is already on, we wait for the soil to get wetter before turning it off.
+    if (pumpControl.isOn(zone.pumpIndex)) {
+        needsWater = (sensorValue > SOIL_THRESHOLD_WET);
+    } else {
+        // If the pump is off, we only turn it on if the soil is dry enough.
+        needsWater = (sensorValue > SOIL_THRESHOLD_DRY);
+    }
+
+    // Control the valve and pump for this specific zone
+    valveControl.set(zone.valveIndex, needsWater);
+    pumpControl.set(zone.pumpIndex, needsWater);
+
+    if (needsWater) {
+        soilStatus[zone.soilSensorIndex] = "irrigating";
+    } else {
+        soilStatus[zone.soilSensorIndex] = "normal";
+    }
+
+    return needsWater; // Returns true if this zone's pump is now on
+}
+
 bool IrrigationControl::control(const SensorData& sensors) {
-    bool anyZoneNeedsWater = false;
-    for (int i = 0; i < NUM_SOIL_SENSORS && i < NUM_WATER_VALVES; i++) {
-        bool needsWater = sensors.soilMoisture[i] > SOIL_THRESHOLD_DRY;
-        // Always update valve status based on immediate need
-        valveControl.set(i, needsWater);
+    bool anyPumpIsOn = false;
+    for (int i = 0; i < NUM_IRRIGATION_ZONES; i++) {
+        anyPumpIsOn |= controlZone(IRRIGATION_ZONES[i], sensors);
+    }
+    return anyPumpIsOn;
+}
 
-        if (needsWater) {
-            anyZoneNeedsWater = true;
-            soilStatus[i] = "irrigating";
-            Serial.print("Zone ");
-            Serial.print(i + 1);
-            Serial.print(" irrigation ON (moisture: ");
-            Serial.print(sensors.soilMoisture[i]);
-            Serial.println(")");
-        } else {
-            soilStatus[i] = "normal";
-        }
+void IrrigationControl::manualControl(int zoneIndex, bool on) {
+    if (zoneIndex < 0 || zoneIndex >= NUM_IRRIGATION_ZONES) {
+        return;
     }
 
-    // --- Latching Pump Control Logic ---
-    // If any zone is dry, ensure the main pump is ON.
-    if (anyZoneNeedsWater) {
-        pumpControl.set(0, true); // Use pump 0 for general irrigation
-    } 
-    // If no zone is currently dry, check for the automatic shut-off condition.
-    else {
-        // The pump only turns off if the master sensor (Soil Sensor 1) is sufficiently wet.
-        if (sensors.soilMoisture[0] < SOIL_THRESHOLD_WET) {
-            pumpControl.set(0, false);
-        }
-        // Otherwise, do nothing, leaving the pump ON (latching it).
-    }
+    const IrrigationZone& zone = IRRIGATION_ZONES[zoneIndex];
     
-    return pumpControl.isOn(0);
+    // Manually set the state of the pump and valve for this zone
+    pumpControl.set(zone.pumpIndex, on);
+    valveControl.set(zone.valveIndex, on);
+
+    // Update the status to reflect manual override
+    if (on) {
+        soilStatus[zone.soilSensorIndex] = "manual on";
+    } else {
+        // When turning off manually, revert to a neutral state.
+        // The automatic control loop will then take over and set it to "normal" or "irrigating" on the next cycle.
+        soilStatus[zone.soilSensorIndex] = "normal";
+    }
 }

@@ -13,6 +13,7 @@ public:
   // Initializes the RTC by configuring it and ensuring it is running; may set the time if not already set.
   static DateTime initializeRTC(RTC_DS3231& rtc, bool setTime = false);
   static bool initializeSD(int chipSelect);
+  static bool validateMux();
 };
 
 #endif // HARDWARE_INIT_H
