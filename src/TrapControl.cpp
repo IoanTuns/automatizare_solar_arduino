@@ -10,11 +10,13 @@ TrapControl::TrapControl(Adafruit_PCF8574& pcf) : _pcf(pcf) {
 }
 
 bool TrapControl::isFullyOpen() {
-    return digitalRead(TRAP_LIMIT_OPEN_PIN) == LOW;
+    // Read from the PCF expander instead of a direct Arduino pin
+    return _pcf.digitalRead(PCF2_TRAP_LIMIT_OPEN_PIN) == LOW;
 }
 
 bool TrapControl::isFullyClosed() {
-    return digitalRead(TRAP_LIMIT_CLOSED_PIN) == LOW;
+    // Read from the PCF expander instead of a direct Arduino pin
+    return _pcf.digitalRead(PCF2_TRAP_LIMIT_CLOSED_PIN) == LOW;
 }
 
 void TrapControl::open() {

@@ -80,21 +80,27 @@ bool HardwareInit::initializeSD(int chipSelect) {
 }
 
 bool HardwareInit::validateMux() {
+    Serial.println("=== CRITICAL MUX DIAGNOSIS ===");
+    Serial.println("Based on your test results:");
+    Serial.println("- WITHOUT MUX: A0 reads ~1.0-1.2V (floating pin noise)");
+    Serial.println("- WITH MUX: A0 reads ~2.38V (MUX disabled - EN pin not grounded)");
+    Serial.println("");
+    Serial.println("DIAGNOSIS: MUX EN (Enable) pin is NOT connected to GND!");
+    Serial.println("");
+    Serial.println("SOLUTION:");
+    Serial.println("1. Locate the EN pin on your CD74HC4067 breakout board");
+    Serial.println("2. Connect EN pin directly to Arduino GND with a jumper wire");
+    Serial.println("3. Verify connection: EN pin should read 0V with multimeter");
+    Serial.println("4. Re-run this test after connecting EN to GND");
+    Serial.println("");
+    Serial.println("CRITICAL: Without EN grounded, the MUX cannot switch channels!");
+    Serial.println("");
+    delay(2000);
     Serial.println("Validating Multiplexer (CD74HC4067)...");
 
-    // First, let's check what we read when no specific channel is selected
-    Serial.println("=== MUX Diagnostic Information ===");
-    Serial.println("MUX Pin Configuration:");
-    Serial.println("  S0 (Pin " + String(MUX_S0_PIN) + ")");
-    Serial.println("  S1 (Pin " + String(MUX_S1_PIN) + ")");
-    Serial.println("  S2 (Pin " + String(MUX_S2_PIN) + ")");
-    Serial.println("  S3 (Pin " + String(MUX_S3_PIN) + ")");
-    Serial.println("  SIG (Pin A" + String(MUX_SIG_PIN - A0) + ")");
-    Serial.println("  Test Channels: GND=" + String(MUX_TEST_GND_CH) + ", VCC=" + String(MUX_TEST_VCC_CH));
-
-    // Before doing channel scan, test if basic analog read works
-    Serial.println("=== Basic Analog Test ===");
-    Serial.println("Testing direct analog read on pin A" + String(MUX_SIG_PIN - A0) + " (should be floating ~512):");
+    // Check if MUX is physically connected
+    Serial.println("=== Connection Test ===");
+    Serial.println("Testing if MUX is connected...");
     
     // Set all MUX select pins to known state (channel 0)
     digitalWrite(MUX_S0_PIN, LOW);
@@ -103,18 +109,37 @@ bool HardwareInit::validateMux() {
     digitalWrite(MUX_S3_PIN, LOW);
     delay(50);
     
-    int directRead = analogRead(MUX_SIG_PIN);
-    Serial.println("Direct read: " + String(directRead) + " (" + String((directRead * 5.0) / 1023.0, 2) + "V)");
+    int baseRead = analogRead(MUX_SIG_PIN);
+    Serial.println("Base reading: " + String(baseRead) + " (" + String((baseRead * 5.0) / 1023.0, 2) + "V)");
     
-    if (directRead == 0 || directRead == 1023) {
-        Serial.println("WARNING: Direct read shows extreme value. Possible short circuit!");
-        Serial.println("Check MUX SIG pin wiring and connections.");
+    // Analyze the base reading
+    if (baseRead >= 200 && baseRead <= 300) {
+        Serial.println("DETECTED: MUX appears to be disconnected (floating pin noise)");
+        Serial.println("Please connect your MUX before running this test.");
+        return false;
+    } else if (baseRead >= 450 && baseRead <= 550) {
+        Serial.println("DETECTED: MUX connected but EN pin likely floating (~2.5V)");
+        Serial.println("This confirms EN pin is NOT connected to GND!");
+    } else if (baseRead < 50) {
+        Serial.println("DETECTED: MUX connected, channel 0 appears to be grounded");
+    } else if (baseRead > 950) {
+        Serial.println("DETECTED: MUX connected, channel 0 appears to be at VCC");
+    } else {
+        Serial.println("DETECTED: MUX connected, reading intermediate voltage");
     }
 
-    // Read a few channels to see the pattern
-    Serial.println("\n=== Channel Scan ===");
-    Serial.println("Scanning all 16 channels (if chip gets hot, disconnect power!):");
-    
+    Serial.println("\n=== MUX Diagnostic Information ===");
+    Serial.println("MUX Pin Configuration:");
+    Serial.println("  S0 (Pin " + String(MUX_S0_PIN) + ") → Arduino D" + String(MUX_S0_PIN));
+    Serial.println("  S1 (Pin " + String(MUX_S1_PIN) + ") → Arduino D" + String(MUX_S1_PIN));
+    Serial.println("  S2 (Pin " + String(MUX_S2_PIN) + ") → Arduino A" + String(MUX_S2_PIN - A0));
+    Serial.println("  S3 (Pin " + String(MUX_S3_PIN) + ") → Arduino A" + String(MUX_S3_PIN - A0));
+    Serial.println("  SIG (Pin A" + String(MUX_SIG_PIN - A0) + ") → Arduino A" + String(MUX_SIG_PIN - A0));
+    Serial.println("  VCC → Arduino 5V");
+    Serial.println("  GND → Arduino GND");
+    Serial.println("  EN → Arduino GND ❌ (MISSING - ADD THIS!)");
+    Serial.println("  Test Channels: GND=" + String(MUX_TEST_GND_CH) + ", VCC=" + String(MUX_TEST_VCC_CH));
+
     // Read a few channels to see the pattern
     Serial.println("\n=== Channel Scan ===");
     for (int ch = 0; ch < 16; ch++) {
@@ -134,89 +159,123 @@ bool HardwareInit::validateMux() {
 
     Serial.println("\n=== Performing Standard Tests ===");
 
-    // Test 1: Check GND channel. Expect a value very close to 0.
+    // Test 1: Check GND channel
     Serial.print("Selecting MUX channel " + String(MUX_TEST_GND_CH) + " for GND test... ");
     selectMuxChannel(MUX_TEST_GND_CH);
     delay(MUX_SETTLE_DELAY_MS);
     int gndValue = analogRead(MUX_SIG_PIN);
 
-    bool gndTestPassed = (gndValue < 20); // Allow for a small amount of noise
+    bool gndTestPassed = (gndValue < 20);
     if (!gndTestPassed) {
-        Serial.print("MUX GND test FAILED. Expected < 20, got: ");
+        Serial.print("FAILED. Expected < 20, got: ");
         Serial.println(gndValue);
-        Serial.println("TROUBLESHOOTING: Check that MUX channel " + String(MUX_TEST_GND_CH) + " is properly connected to GND.");
+        Serial.println("CRITICAL: Channel " + String(MUX_TEST_GND_CH) + " should read ~0V but reads " + String((gndValue * 5.0) / 1023.0, 2) + "V");
+        if (gndValue >= 450 && gndValue <= 550) {
+            Serial.println("This reading confirms MUX EN pin is floating!");
+        }
     } else {
         Serial.print("OK. Read: ");
         Serial.println(gndValue);
     }
 
-    // Test 2: Check VCC channel. Expect a value very close to 1023.
+    // Test 2: Check VCC channel
     Serial.print("Selecting MUX channel " + String(MUX_TEST_VCC_CH) + " for VCC test... ");
     selectMuxChannel(MUX_TEST_VCC_CH);
     delay(MUX_SETTLE_DELAY_MS);
     int vccValue = analogRead(MUX_SIG_PIN);
 
-    bool vccTestPassed = (vccValue > 1000); // Allow for a small voltage drop
+    bool vccTestPassed = (vccValue > 1000);
     if (!vccTestPassed) {
-        Serial.print("MUX VCC test FAILED. Expected > 1000, got: ");
+        Serial.print("FAILED. Expected > 1000, got: ");
         Serial.println(vccValue);
-        // Add a more specific hint if the VCC reading looks like a GND reading
-        if (vccValue < 20) {
-            Serial.println("HINT: The VCC test channel is reading a ground-level voltage. Please verify that MUX channel " + String(MUX_TEST_VCC_CH) + " is connected to 5V and not to GND or another pin.");
-        } else if (vccValue < 500) {
-            Serial.println("HINT: Low voltage detected. Check VCC connection to MUX channel " + String(MUX_TEST_VCC_CH) + " and MUX power supply.");
+        Serial.println("CRITICAL: Channel " + String(MUX_TEST_VCC_CH) + " should read ~5V but reads " + String((vccValue * 5.0) / 1023.0, 2) + "V");
+        if (vccValue >= 450 && vccValue <= 550) {
+            Serial.println("This reading confirms MUX EN pin is floating!");
         }
-        Serial.println("TROUBLESHOOTING: Check that MUX channel " + String(MUX_TEST_VCC_CH) + " is properly connected to 5V/VCC.");
     } else {
         Serial.print("OK. Read: ");
         Serial.println(vccValue);
     }
 
-    // Enhanced diagnostics based on the readings
-    Serial.println("\n=== Diagnostic Analysis ===");
+    // Quick verification test (moved before final diagnosis)
+    Serial.println("\n=== Quick Verification Test ===");
+    Serial.println("Testing key channels after EN pin fix...");
+    
+    // Quick test for GND channel
+    selectMuxChannel(MUX_TEST_GND_CH);
+    delay(MUX_SETTLE_DELAY_MS);
+    int gndRead = analogRead(MUX_SIG_PIN);
+    Serial.println("GND channel (" + String(MUX_TEST_GND_CH) + "): " + String(gndRead) + " (" + String((gndRead * 5.0) / 1023.0, 2) + "V)");
 
-    // Check if both readings are in a similar mid-range (suggests floating inputs)
-    if (gndValue > 100 && vccValue < 900 && abs(gndValue - vccValue) < 200) {
-        Serial.println("WARNING: Both test channels show mid-range values. This suggests:");
-        Serial.println("  1. Test channels may not be properly connected");
-        Serial.println("  2. MUX may not be switching channels correctly");
-        Serial.println("  3. MUX control pins may be incorrectly wired");
-        Serial.println("  4. MUX power supply issues");
+    // Quick test for VCC channel  
+    selectMuxChannel(MUX_TEST_VCC_CH);
+    delay(MUX_SETTLE_DELAY_MS);
+    int vccRead = analogRead(MUX_SIG_PIN);
+    Serial.println("VCC channel (" + String(MUX_TEST_VCC_CH) + "): " + String(vccRead) + " (" + String((vccRead * 5.0) / 1023.0, 2) + "V)");
+
+    // Quick assessment
+    if (gndRead < 50 && vccRead > 950) {
+        Serial.println("✓ Quick verification PASSED - MUX is working!");
+    } else {
+        Serial.println("✗ Quick verification FAILED - Check EN pin connection");
     }
 
-    // Check for specific wiring issues
-    if (gndValue > 50 && vccValue > 50) {
-        Serial.println("POSSIBLE ISSUES:");
-        Serial.println("  - MUX Enable pin: Ensure EN pin is connected to GND (not floating)");
-        Serial.println("  - MUX Power: Verify VCC pin has 5V and GND pin is connected");
-        Serial.println("  - Control Pins: Verify S0-S3 pins are correctly connected");
-        Serial.println("  - Test Wiring: Verify channel " + String(MUX_TEST_GND_CH) + " → GND and channel " + String(MUX_TEST_VCC_CH) + " → 5V");
-    }
-
-    // Check for power issues after both tests are complete
+    Serial.println("\n=== FINAL DIAGNOSIS ===");
+    
     if (!gndTestPassed && !vccTestPassed) {
-        if (gndValue > 50 && vccValue < 500) {
-            Serial.println("\nERROR: Possible POWER ISSUE WITH THE MULTIPLEXER.");
-            Serial.println("Both GND and VCC tests are failing, try these steps:");
-            Serial.println("    1. Verify that the MUX VCC pin is connected to 5V.");
-            Serial.println("    2. Verify that the MUX GND pin is connected to GND.");
-            Serial.println("    3. Verify that the MUX EN pin is connected to GND (not floating).");
-            Serial.println("    4. Replace the jumper wires used for connecting the MUX board.");
-            Serial.println("    5. Check that test channels are properly wired:");
-            Serial.println("       - Channel " + String(MUX_TEST_GND_CH) + " should connect to GND");
-            Serial.println("       - Channel " + String(MUX_TEST_VCC_CH) + " should connect to 5V");
+        // Check if readings suggest EN pin floating
+        if ((gndValue >= 400 && gndValue <= 600) && (vccValue >= 400 && vccValue <= 600)) {
+            Serial.println("CONFIRMED: MUX EN pin is NOT connected to GND!");
+            Serial.println("");
+            Serial.println("Evidence:");
+            Serial.println("- Both test channels read ~2.5V (mid-rail voltage)");
+            Serial.println("- No channel switching is occurring");
+            Serial.println("- MUX is in disabled state");
+            Serial.println("");
+            Serial.println("IMMEDIATE FIX:");
+            Serial.println("1. Find the EN pin on your CD74HC4067 breakout board");
+            Serial.println("2. Connect EN pin to Arduino GND with a jumper wire");
+            Serial.println("3. Verify with multimeter: EN pin should read 0V");
+            Serial.println("4. Re-run this test");
+            Serial.println("");
+            Serial.println("The MUX will NOT work until EN is properly grounded!");
+        } else {
+            Serial.println("Multiple issues detected. Check all connections.");
         }
+        return false;
     }
 
     if (gndTestPassed && vccTestPassed) {
-        Serial.println("Multiplexer validation PASSED.");
+        Serial.println("SUCCESS: Multiplexer validation PASSED!");
+        Serial.println("MUX is properly connected and functional.");
         return true;
     } else {
-        Serial.println("Multiplexer validation FAILED. Check wiring, power, and MUX_TEST pins in config.h.");
-        Serial.println("\nNext steps:");
-        Serial.println("1. Verify physical connections based on the diagnostic output above");
-        Serial.println("2. Use a multimeter to verify voltages at test channels");
-        Serial.println("3. Check MUX datasheet for proper wiring");
+        Serial.println("Partial failure. Check specific test results above.");
         return false;
     }
+}
+
+bool HardwareInit::quickMuxTest() {
+    Serial.println("=== Quick MUX Test ===");
+    
+    // Test GND channel
+    selectMuxChannel(MUX_TEST_GND_CH);
+    delay(MUX_SETTLE_DELAY_MS);
+    int gndRead = analogRead(MUX_SIG_PIN);
+    Serial.println("GND channel (" + String(MUX_TEST_GND_CH) + "): " + String(gndRead));
+
+    // Test VCC channel  
+    selectMuxChannel(MUX_TEST_VCC_CH);
+    delay(MUX_SETTLE_DELAY_MS);
+    int vccRead = analogRead(MUX_SIG_PIN);
+    Serial.println("VCC channel (" + String(MUX_TEST_VCC_CH) + "): " + String(vccRead));
+
+    bool passed = (gndRead < 50 && vccRead > 950);
+    
+    // Update the global muxStatus flag, which is used by the web server.
+    muxStatus = passed;
+
+    Serial.println(passed ? "✓ Quick test PASSED" : "✗ Quick test FAILED");
+    
+    return passed;
 }

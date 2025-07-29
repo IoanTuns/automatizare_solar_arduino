@@ -30,8 +30,8 @@ struct PinMapping {
 
 // ================== System Capacity Constants (No Change) ==================
 const int NUM_SOIL_SENSORS        = 3;
-const int NUM_OF_DOORS            = 2; // Linear actuators, assume 2 pins (relays) per door for extend/retract
-const int NUM_WATER_VALVES        = 5;
+const int NUM_OF_DOORS            = 2; // Restore to 2 doors as requested.
+const int NUM_WATER_VALVES        = 3; // REDUCED: from 5 to 3 to free up 2 pins on PCF2 for trap limit switches.
 const int NUM_WATER_PUMPS         = 3; 
 const int NUM_WATER_FLOW_METERS   = 3; // NOW DEDICATED PINS, NOT MULTIPLEXED
 const int NUM_FANS                = 2;
@@ -82,13 +82,14 @@ const int PCF2_TRAP_PINS[NUM_TOP_TRAPS * 2] = {PCF2_TRAP_UP_PIN, PCF2_TRAP_DOWN_
 extern String trapStatus;
 const unsigned long TRAP_MOVE_TIMEOUT_MS = 5000; // Timeout for trap movement
 
-// ================== Trap Limit Switch Pins (Direct Arduino Digital Inputs) ==================
-// IMPORTANT: You must connect limit switches for the trap and assign two available
-// digital pins here. The current values (0, 1) are placeholders and WILL CONFLICT
-// with the Serial Monitor (TX/RX). Change these to valid, unused pins.
-const int TRAP_LIMIT_OPEN_PIN   = 0;  // <<< CHANGE THIS PIN
-const int TRAP_LIMIT_CLOSED_PIN = 1;  // <<< CHANGE THIS PIN
 
+// ================== Trap Limit Switch Pins (Controlled via PCF8574_2) ==================
+// To resolve pin conflicts on the Arduino, the trap limit switches are moved
+// to the second I/O expander (pcf2), which has spare pins.
+// You must physically connect the trap limit switches to pins P6 and P7 on the
+// PCF8574 module at address 0x21.
+const int PCF2_TRAP_LIMIT_OPEN_PIN   = 6; // PCF8574_2 Pin 6
+const int PCF2_TRAP_LIMIT_CLOSED_PIN = 7; // PCF8574_2 Pin 7
 
 // ================== Multiplexer Pins (Direct Arduino Digital/Analog) ==================
 // Using available general-purpose digital pins for the multiplexer's select lines.

@@ -67,13 +67,15 @@
 | PCF2 Pin 3       | `PCF2_DOOR2_RETRACT_PIN`    | Door 2 Motor (Retract)                        |
 | PCF2 Pin 4       | `PCF2_TRAP_UP_PIN`          | Trap Motor (Up)                               |
 | PCF2 Pin 5       | `PCF2_TRAP_DOWN_PIN`        | Trap Motor (Down)                             |
+| PCF2 Pin 6       | `PCF2_TRAP_LIMIT_OPEN_PIN`  | Trap Limit Switch (Fully Open)                |
+| PCF2 Pin 7       | `PCF2_TRAP_LIMIT_CLOSED_PIN`| Trap Limit Switch (Fully Closed)              |
 
 ## Hardware Overview
 
 - **Arduino UNO R4 WiFi**
 - **Two PCF8574 I2C Expanders**  
   - PCF1 (0x20) provides 8 outputs for actuators (valves, pumps, fans).
-  - PCF2 (0x21) provides outputs for door and trap motors.
+  - PCF2 (0x21) provides outputs for door/trap motors and inputs for trap limit switches.
   - Connected via I2C: SDA (A4), SCL (A5)
 - **CD74HC4067 16-Channel Analog/Digital Multiplexer**  
   - Expands analog inputs for sensors (soil moisture, rain).
@@ -86,7 +88,9 @@
 - **Trap and Door Motors**
   - Controlled via the second PCF8574 expander (PCF2).
 - **Limit Switches**  
-  - For door position feedback, connected to direct digital pins (4, 5, 6, 7).
+  - Door position feedback is connected to direct Arduino digital pins (4, 5, 6, 7).
+  - Trap position feedback is connected to the second PCF8574 expander (PCF2) to
+    avoid pin conflicts on the Arduino.
 - **RTC DS3231**  
   - Real-time clock, connected via I2C (SDA: A4, SCL: A5)
 

@@ -103,29 +103,71 @@ SensorData readSensors() {
 
   bool all_mux_sensors_valid = true;
 
+  // --- Add diagnostic header for MUX reads ---
+  Serial.println("--- Reading MUX Channels ---");
+
   // Read Soil Moisture Sensors via Multiplexer
   for (int i = 0; i < NUM_SOIL_SENSORS; i++) {
-    selectMuxChannel(SOIL_SENSOR1_MUX_CH + i); // Assuming channels are sequential from base
+    int channel = SOIL_SENSOR1_MUX_CH + i;
+    selectMuxChannel(channel); // Assuming channels are sequential from base
     delay(MUX_SETTLE_DELAY_MS); // Small delay for settling
-    int rawValue = analogRead(MUX_SIG_PIN);
+
+    // --- Dummy read to improve accuracy and prevent crosstalk ---
+    analogRead(MUX_SIG_PIN); // First read to charge the ADC's sample-and-hold capacitor
+    delay(5); // Increased delay for ADC to stabilize
+
+    int rawValue = analogRead(MUX_SIG_PIN); // Second, more accurate read
+ 
+    // --- Add diagnostic print for each channel ---
+    Serial.print("  [MUX] Ch ");
+    Serial.print(channel);
+    Serial.print(" (Soil ");
+    Serial.print(i + 1);
+    Serial.print("): Raw value = ");
+    Serial.println(rawValue);
+
     if (rawValue < SOIL_SENSOR_MIN_VALID || rawValue > SOIL_SENSOR_MAX_VALID) {
       data.soilMoisture[i] = -1; // Use -1 to indicate an error/disconnected state
       all_mux_sensors_valid = false;
+      Serial.println("    -> Value is outside valid range. Marked as invalid.");
     } else {
       data.soilMoisture[i] = rawValue;
     }
+
+    // --- NEW: Reset MUX to a known state (GND) to prevent crosstalk to the NEXT channel ---
+    // This is a robust way to handle floating inputs. It forces the ADC input low,
+    // so a subsequent floating read will start from ~0, not from the voltage of the
+    // previously connected channel.
+    selectMuxChannel(MUX_TEST_GND_CH);
+    delay(1); // Brief delay for the MUX to switch
+    analogRead(MUX_SIG_PIN); // Dummy read from GND to discharge the ADC capacitor
   }
 
   // Read Rain Sensor via Multiplexer
   selectMuxChannel(RAIN_SENSOR_MUX_CH);
   delay(MUX_SETTLE_DELAY_MS);
-  int rawRainValue = analogRead(MUX_SIG_PIN); // Assuming analog rain sensor
+  analogRead(MUX_SIG_PIN); // Dummy read
+  delay(5); // Increased delay
+  int rawRainValue = analogRead(MUX_SIG_PIN);
+
+  Serial.print("  [MUX] Ch ");
+  Serial.print(RAIN_SENSOR_MUX_CH);
+  Serial.print(" (Rain): Raw value = ");
+  Serial.println(rawRainValue);
+
   if (rawRainValue < RAIN_SENSOR_MIN_VALID || rawRainValue > RAIN_SENSOR_MAX_VALID) {
     data.rainSensorValue = -1; // Error value
     all_mux_sensors_valid = false;
+    Serial.println("    -> Value is outside valid range. Marked as invalid.");
   } else {
     data.rainSensorValue = rawRainValue;
   }
+
+  // --- NEW: Reset MUX to GND after the final read for good practice ---
+  selectMuxChannel(MUX_TEST_GND_CH);
+  delay(1);
+  analogRead(MUX_SIG_PIN);
+  Serial.println("--------------------------");
 
   // Calculate Water Flow Rates from accumulated pulses (NEW)
   // This calculates L/min based on time since last sensor read
@@ -311,12 +353,20 @@ void setup() {
   if (!pcf2Status) {
     Serial.println("ERROR: PCF8574_2 not found! Check wiring.");
   } else {
-    Serial.println("PCF8574_2 OK. Setting initial pin states...");
+    Serial.println("PCF8574_2 OK. Setting initial pin states (Outputs and Inputs)...");
+    // Set all pins to a default state first (OUTPUT, HIGH)
     for (int i = 0; i < 8; i++) {
       pcf2.pinMode(i, OUTPUT);
       pcf2.digitalWrite(i, HIGH);
     }
+    // Now, specifically set the trap limit switch pins as INPUT_PULLUP
+    Serial.println("  - Configuring Trap Limit Switch pins on PCF2 as INPUT_PULLUP.");
+    pcf2.pinMode(PCF2_TRAP_LIMIT_OPEN_PIN, INPUT_PULLUP);
+    pcf2.pinMode(PCF2_TRAP_LIMIT_CLOSED_PIN, INPUT_PULLUP);
   }
+
+  // Quick MUX test after connecting EN pin
+  HardwareInit::quickMuxTest();
 
   // Initialize RTC and SD card, updating global status flags
   DateTime startTime = HardwareInit::initializeRTC(rtc, true);
@@ -325,10 +375,6 @@ void setup() {
 
   // Validate the multiplexer using the new test function
   muxStatus = HardwareInit::validateMux();
-
-  // Initialize trap limit switch pins
-  pinMode(TRAP_LIMIT_OPEN_PIN, INPUT_PULLUP);
-  pinMode(TRAP_LIMIT_CLOSED_PIN, INPUT_PULLUP);
 
   webServer.begin(ssid, pass);
   HardwareInit::initializePins(); // Call our customized pin initialization
@@ -343,6 +389,7 @@ void setup() {
 // ======================================================================
 void loop() {
   static unsigned long lastSensorRead = 0;
+  static unsigned long lastMuxCheck = 0;
   static SensorData sensors;
 
   // Create a formatted date/time string, handling RTC errors
@@ -352,6 +399,7 @@ void loop() {
   } else {
     rtcTimeString = "RTC Error: Not Found";
   }
+  // Read all sensors and update the sensor data structure every 2 seconds
   if (millis() - lastSensorRead > 2000) { // Read all sensors every 2 seconds
     sensors = readSensors();
     lastSensorRead = millis();
@@ -360,6 +408,12 @@ void loop() {
     } else {
       logData(sensors);
     }
+  }
+    
+  // Check MUX every 60 seconds
+  if (millis() - lastMuxCheck > 90000) {
+      HardwareInit::quickMuxTest();
+      lastMuxCheck = millis();
   }
 
   // Only act on valid sensor data

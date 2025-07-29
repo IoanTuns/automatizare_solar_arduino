@@ -14,6 +14,7 @@ public:
   static DateTime initializeRTC(RTC_DS3231& rtc, bool setTime = false);
   static bool initializeSD(int chipSelect);
   static bool validateMux();
+  static bool quickMuxTest(); // Add this new function
 };
 
 #endif // HARDWARE_INIT_H
