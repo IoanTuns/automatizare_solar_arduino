@@ -1,3 +1,4 @@
+#include <WiFiClient.h>
 #include "SolarWebServer.h"
 #include "config.h" // Include the header with function prototypes
 

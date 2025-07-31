@@ -24,8 +24,11 @@
 // ======================================================================
 
 // WiFi credentials (from secrets.h)
-char ssid[] = SECRET_SSID;
-char pass[] = SECRET_PASS;
+// char ssid[] = SECRET_SSID;
+// char pass[] = SECRET_PASS;
+// Retrieve WiFi credentials from environment variables
+const char* ssid = getenv("WIFI_SSID");
+const char* pass = getenv("WIFI_PASS");
 
 // DHT instances using config definitions
 DHT dhtInt(TEMP_SENSOR_PIN_INT, DHTTYPE);
@@ -275,6 +278,12 @@ void setup() {
 
   Serial.println("Starting Solar Irrigation System...");
 
+  // Initialize the mDNS responder for easy device discovery with mDNS.
+  if (!MDNS.begin("solar")) {
+        Serial.println("Error setting up MDNS responder!");
+    } else {
+        Serial.println("mDNS responder started");
+    }
   dhtInt.begin();
   dhtExt.begin();
 
