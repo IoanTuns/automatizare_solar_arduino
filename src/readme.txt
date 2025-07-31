@@ -51,7 +51,7 @@
 | MUX CH 3         | `RAIN_SENSOR_MUX_CH`        | Rain Sensor                                   |
 | MUX CH 14        | `MUX_TEST_VCC_CH`           | Multiplexer Test Channel (connect to 5V)      |
 | MUX CH 15        | `MUX_TEST_GND_CH`           | Multiplexer Test Channel (connect to GND)     |
-| **I2C Expander PCF1 (Address 0x20)** | | |
+| **I2C Expander PCF1 (Address 0x20)** | | |3
 | PCF1 Pin 0       | `PCF1_VALVE1_PIN`           | Water Valve 1                                 |
 | PCF1 Pin 1       | `PCF1_VALVE2_PIN`           | Water Valve 2                                 |
 | PCF1 Pin 2       | `PCF1_VALVE3_PIN`           | Water Valve 3                                 |

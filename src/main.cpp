@@ -103,6 +103,11 @@ SensorData readSensors() {
 
   bool all_mux_sensors_valid = true;
 
+  // Initialize all soil moisture values to an error state
+  for (int i = 0; i < NUM_SOIL_SENSORS; i++) {
+    data.soilMoisture[i] = -1; // Default to error state
+  }
+
   // --- Add diagnostic header for MUX reads ---
   Serial.println("--- Reading MUX Channels ---");
 
@@ -114,10 +119,10 @@ SensorData readSensors() {
 
     // --- Dummy read to improve accuracy and prevent crosstalk ---
     analogRead(MUX_SIG_PIN); // First read to charge the ADC's sample-and-hold capacitor
-    delay(5); // Increased delay for ADC to stabilize
+    delay(20); // Further increased delay for ADC to stabilize, especially for high-impedance (disconnected) channels.
 
     int rawValue = analogRead(MUX_SIG_PIN); // Second, more accurate read
- 
+
     // --- Add diagnostic print for each channel ---
     Serial.print("  [MUX] Ch ");
     Serial.print(channel);
@@ -126,28 +131,32 @@ SensorData readSensors() {
     Serial.print("): Raw value = ");
     Serial.println(rawValue);
 
+    // Print valid range for debugging
+    Serial.print("    -> Valid range: ");
+    Serial.print(SOIL_SENSOR_MIN_VALID);
+    Serial.print(" to ");
+    Serial.println(SOIL_SENSOR_MAX_VALID);
+
+    // Check for disconnected or invalid sensor
+    // A disconnected pin should float outside this range. This check is made more reliable by the hardware pull-down resistor fix.
     if (rawValue < SOIL_SENSOR_MIN_VALID || rawValue > SOIL_SENSOR_MAX_VALID) {
-      data.soilMoisture[i] = -1; // Use -1 to indicate an error/disconnected state
       all_mux_sensors_valid = false;
-      Serial.println("    -> Value is outside valid range. Marked as invalid.");
+      Serial.println("    -> Value is outside valid range or disconnected. Marked as invalid.");
     } else {
-      data.soilMoisture[i] = rawValue;
+      data.soilMoisture[i] = rawValue; // Update soil moisture value
     }
 
     // --- NEW: Reset MUX to a known state (GND) to prevent crosstalk to the NEXT channel ---
-    // This is a robust way to handle floating inputs. It forces the ADC input low,
-    // so a subsequent floating read will start from ~0, not from the voltage of the
-    // previously connected channel.
     selectMuxChannel(MUX_TEST_GND_CH);
-    delay(1); // Brief delay for the MUX to switch
-    analogRead(MUX_SIG_PIN); // Dummy read from GND to discharge the ADC capacitor
+    delay(5); // Increased delay to ensure MUX switches and line settles to GND, helping to discharge the ADC capacitor.
+    analogRead(MUX_SIG_PIN); // Dummy read from GND to fully discharge the ADC capacitor.
   }
 
   // Read Rain Sensor via Multiplexer
   selectMuxChannel(RAIN_SENSOR_MUX_CH);
   delay(MUX_SETTLE_DELAY_MS);
   analogRead(MUX_SIG_PIN); // Dummy read
-  delay(5); // Increased delay
+  delay(10); // Increased delay to match soil sensor reads for consistency
   int rawRainValue = analogRead(MUX_SIG_PIN);
 
   Serial.print("  [MUX] Ch ");
@@ -184,16 +193,13 @@ SensorData readSensors() {
       interrupts();
 
       // Calculate flow rate in Liters per minute (L/min)
-      // (pulses / calibration_factor) gives Liters
-      // (Liters / (deltaTime_in_minutes)) gives L/min
-      // deltaTime_in_minutes = deltaTime_in_ms / 60000.0
       data.flowRate[i] = (currentPulses / FLOW_CALIBRATION_FACTOR[i]) / (deltaTime / 60000.0);
     }
     lastFlowCalcTime = currentTime;
   } else { // If deltaTime is 0, no new calculation, just ensure flowRate is 0
-      for (int i = 0; i < NUM_WATER_FLOW_METERS; i++) {
-          data.flowRate[i] = 0.0;
-      }
+    for (int i = 0; i < NUM_WATER_FLOW_METERS; i++) {
+      data.flowRate[i] = 0.0;
+    }
   }
 
   bool dht_valid = !isnan(data.tempInt) && !isnan(data.humInt) &&
@@ -203,9 +209,8 @@ SensorData readSensors() {
   if ((data.tempInt == 0.0 && data.humInt == 0.0) || (data.tempExt == 0.0 && data.humExt == 0.0)) {
     dht_valid = false;
   }
-  
+
   data.valid = dht_valid && all_mux_sensors_valid;
-  // You might add validation for other sensors here if needed (e.g., range checks)
   return data;
 }
 
@@ -388,50 +393,74 @@ void setup() {
 // loop() function (UPDATED: Sensor data handling for WebServer/Display)
 // ======================================================================
 void loop() {
-  static unsigned long lastSensorRead = 0;
-  static unsigned long lastMuxCheck = 0;
-  static SensorData sensors;
+    static unsigned long lastSensorRead = 0;
+    static unsigned long lastMuxCheck = 0;
+    static SensorData sensors;
 
-  // Create a formatted date/time string, handling RTC errors
-  String rtcTimeString;
-  if (rtcStatus) {
-    rtcTimeString = getFormattedDateTime(rtc.now());
-  } else {
-    rtcTimeString = "RTC Error: Not Found";
-  }
-  // Read all sensors and update the sensor data structure every 2 seconds
-  if (millis() - lastSensorRead > 2000) { // Read all sensors every 2 seconds
-    sensors = readSensors();
-    lastSensorRead = millis();
-    if (!sensors.valid) {
-      Serial.println("WARNING: Invalid DHT sensor readings!");
+    // Create a formatted date/time string, handling RTC errors
+    String rtcTimeString;
+    if (rtcStatus) {
+        rtcTimeString = getFormattedDateTime(rtc.now());
     } else {
-      logData(sensors);
+        rtcTimeString = "RTC Error: Not Found";
     }
-  }
-    
-  // Check MUX every 60 seconds
-  if (millis() - lastMuxCheck > 90000) {
-      HardwareInit::quickMuxTest();
-      lastMuxCheck = millis();
-  }
 
-  // Only act on valid sensor data
-  if (sensors.valid) {
-    irrigationControl.control(sensors);
-    climateControl.control(sensors);
-    // Note: Door control is event-driven via the web server, not continuous in the loop.
-  }
+    // Read all sensors and update the sensor data structure every 2 seconds
+    if (millis() - lastSensorRead > 2000) { // Read all sensors every 2 seconds
+        sensors = readSensors();
+        lastSensorRead = millis();
+ 
+        // Update base status strings from sensor data here.
+        // This logic should run for each sensor individually, so it is no longer
+        // blocked by the global 'sensors.valid' flag.
+        for (int i = 0; i < NUM_SOIL_SENSORS; i++) {
+            int rawValue = sensors.soilMoisture[i];
+            if (rawValue == -1) {
+                soilStatus[i] = "invalid";
+            // Logic is now inverted: lower reading means drier soil.
+            } else if (rawValue < SOIL_THRESHOLD_DRY) {
+                soilStatus[i] = "dry";
+            } else if (rawValue < SOIL_THRESHOLD_WET) {
+                soilStatus[i] = "normal";
+            } else {
+                soilStatus[i] = "wet";
+            }
+        }
+        // Update rain status based on the rain sensor value
+        if (sensors.rainSensorValue == -1) {
+            rainStatus = "invalid";
+        } else if (sensors.rainSensorValue < RAIN_THRESHOLD_WET) {
+            rainStatus = "raining";
+        } else {
+            rainStatus = "dry";
+        }
+ 
+        if (!sensors.valid) {
+            Serial.println("WARNING: One or more sensor readings are invalid!");
+        } else {
+            logData(sensors);
+        }
+    }
 
-  // Web server handling: Pass all relevant sensor data
-  if (WiFi.status() == WL_CONNECTED) {
-    // The handleClient function now takes the full sensor data struct
-    webServer.handleClient(sensors, rtcTimeString);
-  }
+    // Check MUX every 60 seconds
+    if (millis() - lastMuxCheck > 90000) {
+        HardwareInit::quickMuxTest();
+        lastMuxCheck = millis();
+    }
 
-  // System display update: Pass all relevant sensor data
-  // Pass the RTC status and the pre-formatted time string
-  SystemDisplay::displayStatus(sensors, rtcStatus, rtcTimeString);
+    // Only act on valid sensor data
+    if (sensors.valid) {
+        irrigationControl.control(sensors);
+        climateControl.control(sensors);
+    }
 
-  delay(100); // Small delay to prevent busy-looping
+    // Web server handling: Pass all relevant sensor data
+    if (WiFi.status() == WL_CONNECTED) {
+        webServer.handleClient(sensors, rtcTimeString);
+    }
+
+    // System display update: Pass all relevant sensor data
+    SystemDisplay::displayStatus(sensors, rtcStatus, rtcTimeString);
+
+    delay(100); // Small delay to prevent busy-looping
 }

@@ -6,8 +6,8 @@ String doorStatus[NUM_OF_DOORS] = { "closed", "closed" };
 String trapStatus = "stopped";
 String pumpStatus[NUM_WATER_PUMPS] = { "off", "off", "off" };
 String fanStatus[NUM_FANS] = { "off", "off" };
-String valveStatus[NUM_WATER_VALVES] = { "closed", "closed", "closed", "closed", "closed" };
-String soilStatus[NUM_SOIL_SENSORS] = { "normal", "normal", "normal" };
+String valveStatus[NUM_WATER_VALVES] = { "closed", "closed", "closed"};
+String soilStatus[NUM_SOIL_SENSORS] = { "invalid", "invalid", "invalid" };
 String rainStatus = "dry";
 String i2cScanResults = "Scan not performed yet.";
 
@@ -29,7 +29,5 @@ const IrrigationZone IRRIGATION_ZONES[NUM_IRRIGATION_ZONES] = {
 const PinMapping VALVE_PINS[NUM_WATER_VALVES] = {
     {0, PCF1_VALVE1_PIN}, // Valve 1 on pcf1 (index 0), pin 0
     {0, PCF1_VALVE2_PIN}, // Valve 2 on pcf1 (index 0), pin 1
-    {0, PCF1_VALVE3_PIN}, // Valve 3 on pcf1 (index 0), pin 2
-    {1, 6},              // Valve 4 on pcf2 (index 1), pin 6 (spare)
-    {1, 7}               // Valve 5 on pcf2 (index 1), pin 7 (spare)
+    {0, PCF1_VALVE3_PIN}  // Valve 3 on pcf1 (index 0), pin 2
 };

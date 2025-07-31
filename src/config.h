@@ -200,17 +200,23 @@ struct IrrigationZone {
 extern const IrrigationZone IRRIGATION_ZONES[NUM_IRRIGATION_ZONES];
 
 // ================== Threshold Values ==================
-const int   SOIL_THRESHOLD_DRY = 600; // Value above which irrigation starts
-// Hysteresis for pump control: pump turns off when sensor is wetter than this value.
-const int   SOIL_THRESHOLD_WET = 450; // Must be lower than SOIL_THRESHOLD_DRY
+// NOTE: The logic has been inverted to handle sensors where a LOWER reading means DRYER soil.
+// You must recalibrate these values. For this logic, WET must be a higher value than DRY.
+// The pump will turn ON when the reading drops BELOW the DRY threshold.
+const int   SOIL_THRESHOLD_DRY = 80; // EXAMPLE: Value below which irrigation starts.
+// The pump will turn OFF when the reading rises ABOVE the WET threshold.
+const int   SOIL_THRESHOLD_WET = 110; // EXAMPLE: Must be higher than DRY for hysteresis.
+const int   RAIN_THRESHOLD_WET = 500; // Example: analog value below which it is considered "raining"
+
 const float FAN_TEMP_PRIMARY   = 28.0;
 const float FAN_HUM_PRIMARY    = 75.0;
 const float FAN_TEMP_SECONDARY = 33.0; // FAN_TEMP_PRIMARY + 5.0
 const float FAN_HUM_SECONDARY  = 85.0; // FAN_HUM_PRIMARY + 10.0
 
 // ================== Sensor Validity Ranges ==================
-const int SOIL_SENSOR_MIN_VALID = 50;   // Min expected analog reading
-const int SOIL_SENSOR_MAX_VALID = 950;  // Max expected analog reading
+// NOTE: Adjusted for the 10kΩ pull-down resistor. Disconnected pins will now read near 0.
+const int SOIL_SENSOR_MIN_VALID = 15;   // Min expected analog reading for a connected sensor.
+const int SOIL_SENSOR_MAX_VALID = 500;  // Max expected analog reading. Adjust if your "dry" value is higher.
 const int RAIN_SENSOR_MIN_VALID = 50;
 const int RAIN_SENSOR_MAX_VALID = 950;
 // A disconnected analog pin often floats to 0 or 1023. This range helps filter that out.

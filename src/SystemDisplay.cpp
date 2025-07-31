@@ -33,7 +33,7 @@ void SystemDisplay::displayStatus(const SensorData& sensors, bool rtcStatus, con
     
     Serial.print("Soil moisture: ");
     for (int i = 0; i < NUM_SOIL_SENSORS; i++) {
-      Serial.print(sensors.soilMoisture[i]);
+      Serial.print(soilStatus[i] + " (" + String(sensors.soilMoisture[i]) + ")");
       if (i < NUM_SOIL_SENSORS - 1) Serial.print(", ");
     }
     Serial.println();

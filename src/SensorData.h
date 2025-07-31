@@ -10,6 +10,7 @@ struct SensorData {
   float flowRate[NUM_WATER_FLOW_METERS];
   int rainSensorValue;
   bool valid;
+  // String soilStatus[NUM_SOIL_SENSORS]; // Add this line to include soilStatus
 };
 
 #endif // SENSOR_DATA_H

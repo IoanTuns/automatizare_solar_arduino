@@ -12,15 +12,26 @@ IrrigationControl::IrrigationControl(ValveControl& valveControl, PumpControl& pu
  */
 bool IrrigationControl::controlZone(const IrrigationZone& zone, const SensorData& sensors) {
     int sensorValue = sensors.soilMoisture[zone.soilSensorIndex];
+
+    // If the sensor reading is invalid, do not perform any control actions for this zone.
+    // The status will remain "invalid" as set by the main loop.
+    if (sensorValue == -1) {
+        pumpControl.set(zone.pumpIndex, false);   // Ensure pump is off for safety
+        valveControl.set(zone.valveIndex, false); // Ensure valve is closed for safety
+        return false; // Not irrigating
+    }
+
     bool needsWater = false;
 
     // Implement hysteresis to prevent the pump from rapidly cycling.
     // If the pump for this zone is already on, we wait for the soil to get wetter before turning it off.
+    // NOTE: Logic is inverted for sensors where a lower reading means drier soil.
     if (pumpControl.isOn(zone.pumpIndex)) {
-        needsWater = (sensorValue > SOIL_THRESHOLD_WET);
+        // Pump is ON. Keep it on until the soil is wet enough (reading is > WET threshold).
+        needsWater = (sensorValue < SOIL_THRESHOLD_WET);
     } else {
-        // If the pump is off, we only turn it on if the soil is dry enough.
-        needsWater = (sensorValue > SOIL_THRESHOLD_DRY);
+        // Pump is OFF. Turn it on if the soil is dry enough (reading is < DRY threshold).
+        needsWater = (sensorValue < SOIL_THRESHOLD_DRY);
     }
 
     // Control the valve and pump for this specific zone
@@ -29,10 +40,9 @@ bool IrrigationControl::controlZone(const IrrigationZone& zone, const SensorData
 
     if (needsWater) {
         soilStatus[zone.soilSensorIndex] = "irrigating";
-    } else {
-        soilStatus[zone.soilSensorIndex] = "normal";
     }
-
+    // If not irrigating, we don't change the status. The main loop has already set
+    // the correct base status (e.g., "wet", "normal", "dry").
     return needsWater; // Returns true if this zone's pump is now on
 }
 
@@ -59,8 +69,9 @@ void IrrigationControl::manualControl(int zoneIndex, bool on) {
     if (on) {
         soilStatus[zone.soilSensorIndex] = "manual on";
     } else {
-        // When turning off manually, revert to a neutral state.
-        // The automatic control loop will then take over and set it to "normal" or "irrigating" on the next cycle.
-        soilStatus[zone.soilSensorIndex] = "normal";
+        // When turning off manually, set a temporary status. The main loop's
+        // sensor reading logic will update it to the correct state (wet, normal, dry)
+        // on the next cycle. This provides immediate feedback to the user.
+        soilStatus[zone.soilSensorIndex] = "manual off";
     }
 }
