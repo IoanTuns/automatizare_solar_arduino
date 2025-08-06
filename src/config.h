@@ -4,7 +4,10 @@
 #include <Arduino.h>
 #include <Adafruit_PCF8574.h>
 #include <DHT.h>
-#define CONFIG_VERSION "1.0.0"
+
+// Firmware and Build Info (used in System Info modal)
+#define FIRMWARE_VERSION "1.1.0"
+#define BUILD_ENV_NAME "uno_r4_wifi"
 
 // ================== Serial & Web Server ==================
 const long SERIAL_BAUD_RATE = 115200;

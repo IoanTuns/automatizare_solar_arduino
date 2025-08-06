@@ -11,6 +11,8 @@
 #include "SensorData.h" // This file MUST be updated with new sensor data members
 #include "HardwareInit.h"
 #include "secrets.h"
+#include "SecureCredentials.h" // For secure WiFi credential storage
+#include "WebAuthentication.h" // For web authentication
 #include "config.h" // This file MUST be updated with all new pin definitions
 #include "DoorControl.h"    // Needs to be updated to use pcf2
 #include "PumpControl.h"    // Needs to be updated to use pcf1
@@ -23,12 +25,9 @@
 // GLOBAL VARIABLES & INSTANCES (UPDATED)
 // ======================================================================
 
-// WiFi credentials (from secrets.h)
-// char ssid[] = SECRET_SSID;
-// char pass[] = SECRET_PASS;
-// Retrieve WiFi credentials from environment variables
-const char* ssid = getenv("WIFI_SSID");
-const char* pass = getenv("WIFI_PASS");
+// WiFi credentials - now managed through SecureCredentials
+char ssid[SecureCredentials::MAX_SSID_LENGTH + 1];
+char pass[SecureCredentials::MAX_PASSWORD_LENGTH + 1];
 
 // DHT instances using config definitions
 DHT dhtInt(TEMP_SENSOR_PIN_INT, DHTTYPE);
@@ -108,6 +107,11 @@ SensorData readSensors() {
 
   // Initialize all soil moisture values to an error state
   for (int i = 0; i < NUM_SOIL_SENSORS; i++) {
+    digitalWrite(MUX_S0_PIN, (i & 1) ? HIGH : LOW);
+    digitalWrite(MUX_S1_PIN, (i & 2) ? HIGH : LOW);
+    digitalWrite(MUX_S2_PIN, (i & 4) ? HIGH : LOW);
+    digitalWrite(MUX_S3_PIN, (i & 8) ? HIGH : LOW);
+    delay(10); // Allow multiplexer to settle
     data.soilMoisture[i] = -1; // Default to error state
   }
 
@@ -278,12 +282,25 @@ void setup() {
 
   Serial.println("Starting Solar Irrigation System...");
 
-  // Initialize the mDNS responder for easy device discovery with mDNS.
-  if (!MDNS.begin("solar")) {
-        Serial.println("Error setting up MDNS responder!");
-    } else {
-        Serial.println("mDNS responder started");
-    }
+  // Initialize secure credentials system
+  SecureCredentials::init();
+  
+  // Load WiFi credentials from EEPROM
+  if (!SecureCredentials::loadCredentials(ssid, pass)) {
+    Serial.println("WARNING: No valid WiFi credentials found in EEPROM!");
+    Serial.println("Using fallback credentials from secrets.h");
+    // Fallback to secrets.h if EEPROM credentials not available
+    strncpy(ssid, SECRET_SSID, sizeof(ssid) - 1);
+    strncpy(pass, SECRET_PASS, sizeof(pass) - 1);
+    ssid[sizeof(ssid) - 1] = '\0';
+    pass[sizeof(pass) - 1] = '\0';
+  } else {
+    Serial.println("WiFi credentials loaded from EEPROM");
+  }
+
+  // TODO: Add mDNS support when library is available
+  // Note: MDNS functionality commented out until proper library is identified
+  
   dhtInt.begin();
   dhtExt.begin();
 
@@ -391,6 +408,10 @@ void setup() {
   muxStatus = HardwareInit::validateMux();
 
   webServer.begin(ssid, pass);
+  
+  // Initialize web authentication with default credentials
+  WebAuthentication::initWithDefaults();
+  
   HardwareInit::initializePins(); // Call our customized pin initialization
 
   Serial.println("=== Setup Complete ===");
