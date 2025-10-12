@@ -84,7 +84,7 @@ const int DOOR_LIMIT_OPEN_PINS[NUM_OF_DOORS] = {4, 5}; // Direct Arduino pins
 - All control classes must be passed as references to `SolarWebServer` constructor
 - Status updates must be reflected in global variables for web display
 - Control commands from the web interface should delegate to appropriate control classes
-- Maintain security headers and authentication for all HTTP responses - To do convert to HTTPS later
+- Maintain security headers and authentication for all HTTP responses
 - Validate all user inputs from web requests to prevent injection attacks
 - Use descriptive debug messages for hardware operations
 
@@ -167,13 +167,12 @@ const int DOOR_LIMIT_OPEN_PINS[NUM_OF_DOORS] = {4, 5}; // Direct Arduino pins
 ## Security Implementation Roadmap
 
 ### Current Priority Issues
-1. **HTTPS Implementation**: Upgrade the web server from HTTP to HTTPS for encrypted communication.
-2. **mDNS Integration**: Implement mDNS for easy device discovery on the local network.
-3. **Input Validation**: Continuously review and sanitize all web request parameters to prevent vulnerabilities.
-4. **Hardware Safety**: Enhance emergency stops and fail-safes in control classes.
+1. **mDNS Integration**: Implement mDNS for easy device discovery on the local network.
+2. **Input Validation**: Continuously review and sanitize all web request parameters to prevent vulnerabilities.
+3. **Hardware Safety**: Enhance emergency stops and fail-safes in control classes.
 
 ### Planned Security Features
-- **(Implemented)** EEPROM credential storage via `SecureCredentials` class.
+- **(Implemented)** EEPROM credential storage via `CredentialsStorage` class.
 - **(Implemented)** Session management and secure headers via `WebAuthentication` and `SolarWebServer`.
 - Interactive serial setup utility for credential management
 - Rate limiting for web requests

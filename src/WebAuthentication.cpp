@@ -1,6 +1,8 @@
 #include "WebAuthentication.h"
 #include <Arduino.h>
 #include "secrets.h"
+#include "config.h"
+#include <SHA256.h> // Include a library for SHA-256 hashing
 
 // Static member definitions
 WebAuthentication::Session WebAuthentication::_sessions[MAX_SESSIONS];
@@ -16,8 +18,10 @@ char WebAuthentication::_password[MAX_PASSWORD_LENGTH + 1] = {0};
  */
 void WebAuthentication::init(const char* username, const char* password) {
     strncpy(_username, username, MAX_USERNAME_LENGTH);
-    strncpy(_password, password, MAX_PASSWORD_LENGTH);
     _username[MAX_USERNAME_LENGTH] = '\0';
+
+    String hashed = hashPassword(password);
+    strncpy(_password, hashed.c_str(), MAX_PASSWORD_LENGTH);
     _password[MAX_PASSWORD_LENGTH] = '\0';
     
     // Initialize sessions
@@ -36,7 +40,7 @@ void WebAuthentication::initWithDefaults() {
     Serial.println("[Auth] Initialized with default credentials");
     Serial.print("[Auth] Default username: ");
     Serial.println(DEFAULT_WEB_USERNAME);
-    Serial.println("[Auth] Default password: (hidden for security)");
+    Serial.println("[Auth] Default password: (hashed and hidden for security)");
 }
 
 /**
@@ -138,7 +142,7 @@ bool WebAuthentication::validateBasicAuth(const String& authHeader) {
     String username = decoded.substring(0, colonIndex);
     String password = decoded.substring(colonIndex + 1);
     
-    if (username.equals(_username) && password.equals(_password)) {
+    if (username.equals(_username) && hashPassword(password).equals(_password)) {
         _failedAttempts = 0; // Reset on successful auth
         return true;
     }
@@ -158,11 +162,22 @@ bool WebAuthentication::validateBasicAuth(const String& authHeader) {
  */
 bool WebAuthentication::login(const String& username, const String& password) {
     if (isLockedOut()) {
+        Serial.println("[Auth] System is locked out.");
         return false;
     }
 
+    String hashedPassword = hashPassword(password);
+    Serial.print("[Auth] Entered username: ");
+    Serial.println(username);
+    Serial.print("[Auth] Entered password (hashed): ");
+    Serial.println(hashedPassword);
+    Serial.print("[Auth] Stored username: ");
+    Serial.println(_username);
+    Serial.print("[Auth] Stored password (hashed): ");
+    Serial.println(_password);
+
     // Compare provided credentials with stored credentials
-    if (username.equals(_username) && password.equals(_password)) {
+    if (username.equals(_username) && hashedPassword.equals(_password)) {
         _failedAttempts = 0; // Reset on successful auth
         return true;
     }
@@ -264,12 +279,16 @@ void WebAuthentication::clearAllSessions() {
  * @return Hashed password
  */
 String WebAuthentication::hashPassword(const String& password) {
-    // Simple hash implementation - in production, use a proper hash function
-    unsigned long hash = 5381;
-    for (char c : password) {
-        hash = ((hash << 5) + hash) + c;
+    SHA256 sha256;
+    sha256.update(password.c_str(), password.length());
+    uint8_t hash[32];
+    sha256.finalize(hash, sizeof(hash));
+    String hashString = "";
+    for (int i = 0; i < 32; i++) { // SHA-256 produces a 32-byte hash
+        if (hash[i] < 16) hashString += "0"; // Add leading zero for single digit
+        hashString += String(hash[i], HEX);
     }
-    return String(hash, HEX);
+    return hashString;
 }
 
 /**
@@ -291,9 +310,9 @@ int WebAuthentication::findSessionSlot() {
  * @param buffer Buffer to store session ID (must be SESSION_ID_LENGTH + 1 bytes)
  */
 void WebAuthentication::generateSessionId(char* buffer) {
-    const char chars[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    const char* chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     for (int i = 0; i < SESSION_ID_LENGTH; i++) {
-        buffer[i] = chars[random(0, sizeof(chars) - 1)];
+        buffer[i] = chars[random(0, strlen(chars))];
     }
     buffer[SESSION_ID_LENGTH] = '\0';
 }
@@ -305,7 +324,7 @@ void WebAuthentication::generateSessionId(char* buffer) {
  */
 String WebAuthentication::base64Encode(const String& input) {
     // Simple base64 implementation for basic auth
-    const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
     String encoded = "";
     int val = 0, valb = -6;
     
@@ -358,7 +377,4 @@ String WebAuthentication::base64Decode(const String& input) {
     return decoded;
 }
 
-bool WebAuthentication::validateCredentials(const String& username, const String& password) {
-    // Compare provided credentials with stored credentials
-    return username.equals(_username) && password.equals(_password);
-}
+// Example usage:

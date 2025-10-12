@@ -16,12 +16,12 @@ public:
     SolarWebServer(uint16_t port, PumpControl& pumpControl, DoorControl& doorControl, 
                    ClimateControl& climateControl, ValveControl& valveControl, 
                    TrapControl& trapControl, IrrigationControl& irrigationControl);
+    
+    void initializeAuthentication(const char* username, const char* password);
     void begin(const char* ssid, const char* pass);
     void begin();
     void handleClient(const SensorData& sensors, const String& rtcTime);
     void cleanupSessions();
-    void initializeAuthentication(const char* username, const char* password);
-    void handleLoginRequest(WiFiClient& client, const String& request, const SensorData& sensors, const String& rtcTime);
 
 private:
     WiFiServer _server;
@@ -32,7 +32,11 @@ private:
     TrapControl& _trapControl;
     IrrigationControl& _irrigationControl;
 
-    void sendLoginPage(WiFiClient& client, bool showError);
+    String _adminUsername;
+    String _adminPassword;
+
+    // Web Page Rendering
+    void sendLoginPage(WiFiClient& client, bool showError = false);
     void sendMainPage(WiFiClient& client, const SensorData& sensors, const String& rtcTime, const String& newSessionId = "");
     void sendErrorPage(WiFiClient& client, int errorCode, const String& message);
     void sendSecurityHeaders(WiFiClient& client, const String& sessionId);
@@ -48,14 +52,16 @@ private:
 
     // Helper functions for building the main page
     void sendMainPageHeader(WiFiClient& client, const String& newSessionId, const String& rtcTime);
+    void sendMainPageFooter(WiFiClient& client);
     void sendClimateCard(WiFiClient& client, const SensorData& sensors);
     void sendSoilMoistureCard(WiFiClient& client, const SensorData& sensors);
     void sendIrrigationCard(WiFiClient& client);
     void sendFansCard(WiFiClient& client);
     void sendVentilationTrapCard(WiFiClient& client);
     void sendDoorsCard(WiFiClient& client);
-    void sendMainPageFooter(WiFiClient& client);
     void renderButton(WiFiClient& client, const String& path, const String& label, const String& cssClass);
+    void handleLoginRequest(WiFiClient& client, const String& request, const SensorData& sensors, const String& rtcTime);
+
 };
 
 #endif // SOLARWEBSERVER_H

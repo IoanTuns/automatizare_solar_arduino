@@ -9,6 +9,7 @@
 
 class HardwareInit {
 public:
+  static void initializeHardware();
   static void initializePins();
   // Initializes the RTC by configuring it and ensuring it is running; may set the time if not already set.
   static DateTime initializeRTC(RTC_DS3231& rtc, bool setTime = false);

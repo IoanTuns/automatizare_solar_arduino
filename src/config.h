@@ -232,4 +232,17 @@ void flowMeterISR0();
 void flowMeterISR1();
 void flowMeterISR2();
 
+#pragma once
+
+#define MAX_USERNAME_LENGTH 32
+#define MAX_PASSWORD_LENGTH 64
+
+extern char WEB_USERNAME[MAX_USERNAME_LENGTH + 1];
+extern char WEB_PASSWORD[MAX_PASSWORD_LENGTH + 1];
+
+// ================== LCD Display (I2C) ==================
+const uint8_t LCD_I2C_ADDR = 0x27; // Common I2C address for LCDs
+const uint8_t LCD_COLS = 20;       // LCD columns
+const uint8_t LCD_ROWS = 4;        // LCD rows
+
 #endif // CONFIG_H

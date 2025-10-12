@@ -34,6 +34,8 @@ SolarWebServer::SolarWebServer(uint16_t port, PumpControl& pumpControl, DoorCont
  * @param password Admin password
  */
 void SolarWebServer::initializeAuthentication(const char* username, const char* password) {
+    _adminUsername = username;
+    _adminPassword = password;
     WebAuthentication::init(username, password);
 }
 
@@ -49,9 +51,9 @@ void SolarWebServer::begin(const char* ssid, const char* pass) {
         return;
     }
 
-    // Store credentials securely
-    if (!SecureCredentials::storeCredentials(ssid, pass)) {
-        Serial.println("Warning: Failed to store WiFi credentials securely");
+    // Store credentials
+    if (!CredentialsStorage::storeCredentials(ssid, pass)) {
+        Serial.println("Warning: Failed to store WiFi credentials");
     }
 
     // Connect to WiFi
@@ -80,7 +82,7 @@ void SolarWebServer::begin(const char* ssid, const char* pass) {
 void SolarWebServer::begin() {
     char ssid[33];
     char pass[65];
-    if (SecureCredentials::loadCredentials(ssid, pass)) {
+    if (CredentialsStorage::loadCredentials(ssid, pass)) {
         begin(ssid, pass);
         // Clear sensitive data from stack
         memset(ssid, 0, sizeof(ssid));
@@ -163,14 +165,13 @@ void SolarWebServer::sendUnauthorizedResponse(WiFiClient& client) {
  * @param showError Show error message for failed login
  */
 void SolarWebServer::sendLoginPage(WiFiClient& client, bool showError) {
-    sendSecurityHeaders(client, ""); // Send headers, but no session cookie
-    client.print(FPSTR(LOGIN_PAGE_HEADER));
-    
+    client.println("<html><body>");
+    client.println("<h2>[SECURE] Solar Control Panel</h2>");
     if (showError) {
-        client.print(FPSTR(LOGIN_PAGE_ERROR));
+        client.println("<div style='color:red;'>Invalid username or password. Please try again.</div>");
     }
-    
     client.print(FPSTR(LOGIN_PAGE_FORM));
+    client.println("</body></html>");
 }
 
 /**
@@ -254,6 +255,26 @@ String SolarWebServer::parseFormData(const String& request) {
     return request.substring(bodyStart + 4);
 }
 
+String urlDecode(const String& text) {
+  String decoded = "";
+  char temp[] = "0x00";
+  for (unsigned int i = 0; i < text.length(); i++) {
+    if (text[i] == '%') {
+      if (i + 2 < text.length()) {
+        temp[2] = text[i+1];
+        temp[3] = text[i+2];
+        decoded += (char) strtol(temp, NULL, 16);
+        i += 2;
+      }
+    } else if (text[i] == '+') {
+      decoded += ' ';
+    } else {
+      decoded += text[i];
+    }
+  }
+  return decoded;
+}
+
 /**
  * @brief Parse a specific field from form data
  * @param formData URL-encoded form data
@@ -271,9 +292,7 @@ String SolarWebServer::parseFormField(const String& formData, const String& fiel
     
     String value = formData.substring(fieldStart, fieldEnd);
     
-    // Simple URL decode (handle + and %20 for spaces)
-    value.replace("+", " ");
-    value.replace("%20", " ");
+    value = urlDecode(value);
 
     // Reject suspicious input
     if (value.indexOf("<") != -1 || value.indexOf(">") != -1) return "";
@@ -377,7 +396,7 @@ void SolarWebServer::handleClient(const SensorData& sensors, const String& rtcTi
     // --- EARLY SESSION VALIDATION ---
     String sessionId = parseSessionCookie(request);
     if (!WebAuthentication::validateSession(sessionId)) {
-        sendLoginPage(client, true); // Or sendUnauthorizedResponse(client);
+        sendLoginPage(client, false); // <-- Change 'true' to 'false'
         client.stop();
         return;
     }
@@ -622,11 +641,12 @@ void SolarWebServer::handleLoginRequest(WiFiClient& client, const String& reques
     String username = parseFormField(formData, "username");
     String password = parseFormField(formData, "password");
 
-    if (WebAuthentication::validateCredentials(username, password)) {
-        String sessionId = WebAuthentication::createSession(); // No argument
-        sendSecurityHeaders(client, sessionId); // Set session cookie
-        sendMainPage(client, sensors, rtcTime, sessionId); // Show main page
+    // WARNING: Plaintext password comparison. This is not secure.
+    if (username == _adminUsername && password == _adminPassword) {
+        String sessionId = WebAuthentication::createSession();
+        sendSecurityHeaders(client, sessionId);
+        sendMainPage(client, sensors, rtcTime, sessionId);
     } else {
-        sendLoginPage(client, true); // Show error
+        sendLoginPage(client, true); // Only show error after failed login
     }
 }
