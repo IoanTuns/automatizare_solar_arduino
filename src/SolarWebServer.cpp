@@ -106,23 +106,23 @@ void SolarWebServer::handleClient(const SensorData& sensors, const String& rtcTi
     // --- Scalable Command Processing ---
     // Process irrigation zone commands using a loop
     for (int i = 0; i < NUM_IRRIGATION_ZONES; i++) {
-        if (req.indexOf("/zone/" + String(i + 1) + "/on") > 0) _irrigationControl.manualControl(i, true);
-        else if (req.indexOf("/zone/" + String(i + 1) + "/off") > 0) _irrigationControl.manualControl(i, false);
+        if (req.indexOf("/zone/" + String(i + 1) + "/on") != -1) _irrigationControl.manualControl(i, true);
+        else if (req.indexOf("/zone/" + String(i + 1) + "/off") != -1) _irrigationControl.manualControl(i, false);
     }
 
     // Process fan commands using a loop
     for (int i = 0; i < NUM_FANS; i++) {
-        if (req.indexOf("/fan/" + String(i + 1) + "/on") > 0) _climateControl.controlFan(i, true);
-        else if (req.indexOf("/fan/" + String(i + 1) + "/off") > 0) _climateControl.controlFan(i, false);
+        if (req.indexOf("/fan/" + String(i + 1) + "/on") != -1) _climateControl.controlFan(i, true);
+        else if (req.indexOf("/fan/" + String(i + 1) + "/off") != -1) _climateControl.controlFan(i, false);
     }
 
     // Trap controls
-    if      (req.indexOf("/trap/open") > 0) _trapControl.open();
-    else if (req.indexOf("/trap/close")> 0) _trapControl.close();
-    else if (req.indexOf("/trap/up")   > 0) _trapControl.up();
-    else if (req.indexOf("/trap/down") > 0) _trapControl.down();
-    else if (req.indexOf("/trap/stop") > 0) _trapControl.stop();
-    else if (req.indexOf("/trap/reset") > 0) _trapControl.resetErrors();
+    if      (req.indexOf("/trap/open") != -1) _trapControl.open();
+    else if (req.indexOf("/trap/close") != -1) _trapControl.close();
+    else if (req.indexOf("/trap/up") != -1)   _trapControl.up();
+    else if (req.indexOf("/trap/down") != -1) _trapControl.down();
+    else if (req.indexOf("/trap/stop") != -1) _trapControl.stop();
+    else if (req.indexOf("/trap/reset") != -1) _trapControl.resetErrors();
 
     // Scalable door controls
     for (int i = 0; i < NUM_OF_DOORS; i++) {

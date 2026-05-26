@@ -24,8 +24,8 @@
 // ======================================================================
 
 // WiFi credentials (from secrets.h)
-char ssid[] = SECRET_SSID;
-char pass[] = SECRET_PASS;
+char ssid[] = WIFI_SSID;
+char pass[] = WIFI_PASS;
 
 // DHT instances using config definitions
 DHT dhtInt(TEMP_SENSOR_PIN_INT, DHTTYPE);
@@ -122,31 +122,31 @@ SensorData readSensors() {
     delay(20); // Further increased delay for ADC to stabilize, especially for high-impedance (disconnected) channels.
 
     int rawValue = analogRead(MUX_SIG_PIN); // Second, more accurate read
-
-    // --- Add diagnostic print for each channel ---
-    Serial.print("  [MUX] Ch ");
-    Serial.print(channel);
-    Serial.print(" (Soil ");
-    Serial.print(i + 1);
-    Serial.print("): Raw value = ");
-    Serial.println(rawValue);
-
-    // Print valid range for debugging
-    Serial.print("    -> Valid range: ");
-    Serial.print(SOIL_SENSOR_MIN_VALID);
-    Serial.print(" to ");
-    Serial.println(SOIL_SENSOR_MAX_VALID);
-
+    
     // Check for disconnected or invalid sensor
-    // A disconnected pin should float outside this range. This check is made more reliable by the hardware pull-down resistor fix.
     if (rawValue < SOIL_SENSOR_MIN_VALID || rawValue > SOIL_SENSOR_MAX_VALID) {
       all_mux_sensors_valid = false;
-      Serial.println("    -> Value is outside valid range or disconnected. Marked as invalid.");
+      data.soilMoisture[i] = -1;
     } else {
       data.soilMoisture[i] = rawValue; // Update soil moisture value
     }
 
-    // --- NEW: Reset MUX to a known state (GND) to prevent crosstalk to the NEXT channel ---
+    // Logging every read can bloat Serial; consider making this conditional on a debug flag
+    if (millis() % 10000 < 2000) { // Log every 10 seconds approx
+        Serial.print("  [MUX] Ch ");
+        Serial.print(channel);
+        Serial.print(" (Soil ");
+        Serial.print(i + 1);
+        Serial.print("): Raw value = ");
+        Serial.print(rawValue);
+        if (data.soilMoisture[i] == -1) {
+            Serial.println(" [INVALID]");
+        } else {
+            Serial.println(" [OK]");
+        }
+    }
+
+    // Reset MUX to GND to prevent crosstalk
     selectMuxChannel(MUX_TEST_GND_CH);
     delay(5); // Increased delay to ensure MUX switches and line settles to GND, helping to discharge the ADC capacitor.
     analogRead(MUX_SIG_PIN); // Dummy read from GND to fully discharge the ADC capacitor.
@@ -159,15 +159,9 @@ SensorData readSensors() {
   delay(10); // Increased delay to match soil sensor reads for consistency
   int rawRainValue = analogRead(MUX_SIG_PIN);
 
-  Serial.print("  [MUX] Ch ");
-  Serial.print(RAIN_SENSOR_MUX_CH);
-  Serial.print(" (Rain): Raw value = ");
-  Serial.println(rawRainValue);
-
   if (rawRainValue < RAIN_SENSOR_MIN_VALID || rawRainValue > RAIN_SENSOR_MAX_VALID) {
     data.rainSensorValue = -1; // Error value
     all_mux_sensors_valid = false;
-    Serial.println("    -> Value is outside valid range. Marked as invalid.");
   } else {
     data.rainSensorValue = rawRainValue;
   }
@@ -266,25 +260,7 @@ void logData(const SensorData& data) {
   }
 }
 
-// ======================================================================
-// setup() function (UPDATED: PCF initialization, Class considerations)
-// ======================================================================
-void setup() {
-  Serial.begin(115200);
-  delay(2000); // Small delay to ensure serial is ready
-
-  Serial.println("Starting Solar Irrigation System...");
-
-  dhtInt.begin();
-  dhtExt.begin();
-
-  // Initialize I2C bus
-  Wire.begin();
-  delay(2000); // Small delay to ensure serial is ready
-
-  // --- I2C Scanner for Diagnostics ---
-  // This will help identify which I2C devices are responding.
-  Serial.println("Scanning I2C bus...");
+void runI2CScanner() {
   i2cScanResults = ""; // Clear previous results for web display
   byte error, address;
   int nDevices = 0;
@@ -337,6 +313,22 @@ void setup() {
     i2cScanResults = noDeviceMsg;
   }
   Serial.println("I2C scan complete.\n");
+}
+
+// ======================================================================
+// setup() function
+// ======================================================================
+void setup() {
+  Serial.begin(115200);
+  delay(2000); // Small delay to ensure serial is ready
+
+  Serial.println("Starting Solar Irrigation System...");
+
+  dhtInt.begin();
+  dhtExt.begin();
+
+  Wire.begin();
+  runI2CScanner();
 
   // Initialize both PCF8574 expanders based on their addresses from config.h
   Serial.print("Initializing PCF8574_1 at 0x"); Serial.println(PCF1_ADDR, HEX);
