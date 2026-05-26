@@ -279,3 +279,7 @@ bool HardwareInit::quickMuxTest() {
     
     return passed;
 }
+
+void HardwareInit::initializeHardware() {
+    // Implementation of hardware initialization
+}

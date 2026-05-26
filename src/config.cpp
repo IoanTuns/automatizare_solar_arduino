@@ -1,4 +1,5 @@
 #include "config.h"
+#include "secrets.h"
 
 // ================== Global State Variables ==================
 // These are the actual definitions for the 'extern' variables in config.h
@@ -31,3 +32,6 @@ const PinMapping VALVE_PINS[NUM_WATER_VALVES] = {
     {0, PCF1_VALVE2_PIN}, // Valve 2 on pcf1 (index 0), pin 1
     {0, PCF1_VALVE3_PIN}  // Valve 3 on pcf1 (index 0), pin 2
 };
+
+char WEB_USERNAME[MAX_USERNAME_LENGTH + 1] = DEFAULT_WEB_USERNAME;
+char WEB_PASSWORD[MAX_PASSWORD_LENGTH + 1] = DEFAULT_WEB_PASSWORD;

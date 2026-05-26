@@ -4,17 +4,20 @@
 #include <Arduino.h>
 #include <Adafruit_PCF8574.h>
 #include <DHT.h>
-#define CONFIG_VERSION "1.0.0"
+
+// Firmware and Build Info (used in System Info modal)
+#define FIRMWARE_VERSION "1.1.0"
+#define BUILD_ENV_NAME "uno_r4_wifi"
 
 // ================== Serial & Web Server ==================
 const long SERIAL_BAUD_RATE = 115200;
-const int WEB_SERVER_PORT  = 80;
+const uint16_t WEB_SERVER_PORT  = 80;
 
 // ================== Timing Configuration (in milliseconds) ==================
 const unsigned long SENSOR_READ_INTERVAL_MS = 2000;
 const unsigned long DISPLAY_UPDATE_INTERVAL_MS = 10000;
 const unsigned long WIFI_CONNECT_TIMEOUT_MS = 30000;
-const unsigned long MAIN_LOOP_DELAY_MS = 100;
+const uint8_t MAIN_LOOP_DELAY_MS = 100;
 const unsigned long MUX_SETTLE_DELAY_MS = 15;
 
 // ================== SD Card Pin ==================
@@ -35,16 +38,16 @@ const int NUM_WATER_VALVES        = 3; // REDUCED: from 5 to 3 to free up 2 pins
 const int NUM_WATER_PUMPS         = 3; 
 const int NUM_WATER_FLOW_METERS   = 3; // NOW DEDICATED PINS, NOT MULTIPLEXED
 const int NUM_FANS                = 2;
-const int NUM_TEMP_SENSORS        = 2;
-const int NUM_RAIN_SENSORS        = 1;
-const int NUM_TOP_TRAPS           = 1; // Assume 2 pins (relays) for trap motor UP/DOWN
+const uint8_t NUM_TEMP_SENSORS        = 2;
+const uint8_t NUM_RAIN_SENSORS        = 1;
+const uint8_t NUM_TOP_TRAPS           = 1; // Assume 2 pins (relays) for trap motor UP/DOWN
 
 
 // ================== DHT Sensor Pins (Direct Arduino Digital Inputs) ==================
-const uint8_t DHTTYPE = DHT22;
-const int TEMP_SENSOR_PINS[NUM_TEMP_SENSORS] = {2, 3}; // Digital pins D2, D3
-const int TEMP_SENSOR_PIN_INT = TEMP_SENSOR_PINS[0]; // Indoor DHT22
-const int TEMP_SENSOR_PIN_EXT = TEMP_SENSOR_PINS[1]; // Outdoor DHT22
+const uint8_t DHTTYPE = 22; // 22 is the value for DHT22/AM2302
+const uint8_t TEMP_SENSOR_PINS[NUM_TEMP_SENSORS] = {2, 3}; // Digital pins D2, D3
+const uint8_t TEMP_SENSOR_PIN_INT = TEMP_SENSOR_PINS[0]; // Indoor DHT22
+const uint8_t TEMP_SENSOR_PIN_EXT = TEMP_SENSOR_PINS[1]; // Outdoor DHT22
 
 
 // ================== Door Motor Pins (Controlled via PCF8574_2) ==================
@@ -69,8 +72,8 @@ const unsigned long DOOR_CLOSE_DELAY_MS = 2000;
 // Using available general-purpose digital pins on the Arduino.
 // This configuration assumes 2 limit switches per door (one for open, one for closed),
 // totaling 4 limit switches for the 2 doors.
-const int DOOR_LIMIT_OPEN_PINS[NUM_OF_DOORS]   = {4, 5};  // Digital Pin D4 for Door 1 Open, D5 for Door 2 Open
-const int DOOR_LIMIT_CLOSED_PINS[NUM_OF_DOORS] = {6, 7};  // Digital Pin D6 for Door 1 Closed, D7 for Door 2 Closed
+const uint8_t DOOR_LIMIT_OPEN_PINS[NUM_OF_DOORS]   = {4, 5};  // Digital Pin D4 for Door 1 Open, D5 for Door 2 Open
+const uint8_t DOOR_LIMIT_CLOSED_PINS[NUM_OF_DOORS] = {6, 7};  // Digital Pin D6 for Door 1 Closed, D7 for Door 2 Closed
 
 
 // ================== Trap Motor Pins (Controlled via PCF8574_2) ==================
@@ -103,7 +106,7 @@ const int MUX_S3_PIN = A3; // Using Analog Pin A3 (D17) as Digital I/O
 // NOTE: The MUX 'EN' (Enable) pin must be tied to GND for the chip to be active.
 const int MUX_SIG_PIN = A0; // Analog Pin A0 (D14) - Input from multiplexer's common output
 
-// MUX Test Channels for validation                                                                       ¿
+// MUX Test Channels for validation
 const int MUX_TEST_GND_CH = 15; // MUX Channel connected to GND
 const int MUX_TEST_VCC_CH = 14; // MUX Channel connected to 5V
 
@@ -114,11 +117,10 @@ const int MUX_TEST_VCC_CH = 14; // MUX Channel connected to 5V
 const uint8_t PCF1_ADDR = 0x20; // Default I2C address for the first PCF8574
 const uint8_t PCF2_ADDR = 0x21; // I2C address for the second PCF8574 (adjust jumpers on module)
 
-// These are the dedicated I2C pins on the Arduino UNO R4 WiFi.
-const int PCF_SDA_PIN = A4; // Arduino I2C Data (also Qwiic SDA)
-const int PCF_SCL_PIN = A5; // Arduino I2C Clock (also Qwiic SCL)
+// Forward declaration of PCF8574 to reduce header bloat.
+// Files that actually use the PCF objects should include Adafruit_PCF8574.h.
+class Adafruit_PCF8574;
 
-// Make pcf2 globally available for simple trap functions.
 // For classes, dependency injection will be used.
 extern Adafruit_PCF8574 pcf1; 
 extern Adafruit_PCF8574 pcf2;
@@ -212,6 +214,7 @@ const float FAN_TEMP_PRIMARY   = 28.0;
 const float FAN_HUM_PRIMARY    = 75.0;
 const float FAN_TEMP_SECONDARY = 33.0; // FAN_TEMP_PRIMARY + 5.0
 const float FAN_HUM_SECONDARY  = 85.0; // FAN_HUM_PRIMARY + 10.0
+const float CLIMATE_HYSTERESIS = 1.5;  // Degrees/Percent to drop before turning OFF
 
 // ================== Sensor Validity Ranges ==================
 // NOTE: Adjusted for the 10kΩ pull-down resistor. Disconnected pins will now read near 0.
@@ -228,5 +231,18 @@ void selectMuxChannel(int channel);
 void flowMeterISR0();
 void flowMeterISR1();
 void flowMeterISR2();
+
+#pragma once
+
+#define MAX_USERNAME_LENGTH 32
+#define MAX_PASSWORD_LENGTH 64
+
+extern char WEB_USERNAME[MAX_USERNAME_LENGTH + 1];
+extern char WEB_PASSWORD[MAX_PASSWORD_LENGTH + 1];
+
+// ================== LCD Display (I2C) ==================
+const uint8_t LCD_I2C_ADDR = 0x27; // Common I2C address for LCDs
+const uint8_t LCD_COLS = 20;       // LCD columns
+const uint8_t LCD_ROWS = 4;        // LCD rows
 
 #endif // CONFIG_H
