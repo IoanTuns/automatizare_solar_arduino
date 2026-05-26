@@ -5,25 +5,27 @@
 #include <RTClib.h> // For RTC DS3231
 #include <Adafruit_PCF8574.h> // For I/O Expander
 #include <SD.h> // For SD card module
-#include <EEPROM.h> // Required for EEPROM operations
 // Include your custom headers
 #include "SolarWebServer.h"
 #include "SystemDisplay.h"
-#include "SecureCredentials.h"
-#include "WebAuthentication.h"
-#include "LcdDisplay.h"
-#include <ArduinoMDNS.h>
+#include "SensorData.h" // This file MUST be updated with new sensor data members
 #include "HardwareInit.h"
 #include "secrets.h"
+#include "config.h" // This file MUST be updated with all new pin definitions
+#include "DoorControl.h"    // Needs to be updated to use pcf2
+#include "PumpControl.h"    // Needs to be updated to use pcf1
+#include "ValveControl.h"   // Needs to be updated to use pcf1
+#include "IrrigationControl.h"
+#include "ClimateControl.h" // Needs to be updated to use pcf1
+#include "TrapControl.h"
 
-// LCD instance
-LcdDisplay lcd(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS);
-WiFiUDP udp;
-MDNS mdns(udp);
+// ======================================================================
+// GLOBAL VARIABLES & INSTANCES (UPDATED)
+// ======================================================================
 
-// --- Global Variables ---
-char ssid[33];
-char pass[65];
+// WiFi credentials (from secrets.h)
+char ssid[] = WIFI_SSID;
+char pass[] = WIFI_PASS;
 
 // DHT instances using config definitions
 DHT dhtInt(TEMP_SENSOR_PIN_INT, DHTTYPE);
@@ -103,11 +105,6 @@ SensorData readSensors() {
 
   // Initialize all soil moisture values to an error state
   for (int i = 0; i < NUM_SOIL_SENSORS; i++) {
-    digitalWrite(MUX_S0_PIN, (i & 1) ? HIGH : LOW);
-    digitalWrite(MUX_S1_PIN, (i & 2) ? HIGH : LOW);
-    digitalWrite(MUX_S2_PIN, (i & 4) ? HIGH : LOW);
-    digitalWrite(MUX_S3_PIN, (i & 8) ? HIGH : LOW);
-    delay(10); // Allow multiplexer to settle
     data.soilMoisture[i] = -1; // Default to error state
   }
 
@@ -125,31 +122,31 @@ SensorData readSensors() {
     delay(20); // Further increased delay for ADC to stabilize, especially for high-impedance (disconnected) channels.
 
     int rawValue = analogRead(MUX_SIG_PIN); // Second, more accurate read
-
-    // --- Add diagnostic print for each channel ---
-    Serial.print("  [MUX] Ch ");
-    Serial.print(channel);
-    Serial.print(" (Soil ");
-    Serial.print(i + 1);
-    Serial.print("): Raw value = ");
-    Serial.println(rawValue);
-
-    // Print valid range for debugging
-    Serial.print("    -> Valid range: ");
-    Serial.print(SOIL_SENSOR_MIN_VALID);
-    Serial.print(" to ");
-    Serial.println(SOIL_SENSOR_MAX_VALID);
-
+    
     // Check for disconnected or invalid sensor
-    // A disconnected pin should float outside this range. This check is made more reliable by the hardware pull-down resistor fix.
     if (rawValue < SOIL_SENSOR_MIN_VALID || rawValue > SOIL_SENSOR_MAX_VALID) {
       all_mux_sensors_valid = false;
-      Serial.println("    -> Value is outside valid range or disconnected. Marked as invalid.");
+      data.soilMoisture[i] = -1;
     } else {
       data.soilMoisture[i] = rawValue; // Update soil moisture value
     }
 
-    // --- NEW: Reset MUX to a known state (GND) to prevent crosstalk to the NEXT channel ---
+    // Logging every read can bloat Serial; consider making this conditional on a debug flag
+    if (millis() % 10000 < 2000) { // Log every 10 seconds approx
+        Serial.print("  [MUX] Ch ");
+        Serial.print(channel);
+        Serial.print(" (Soil ");
+        Serial.print(i + 1);
+        Serial.print("): Raw value = ");
+        Serial.print(rawValue);
+        if (data.soilMoisture[i] == -1) {
+            Serial.println(" [INVALID]");
+        } else {
+            Serial.println(" [OK]");
+        }
+    }
+
+    // Reset MUX to GND to prevent crosstalk
     selectMuxChannel(MUX_TEST_GND_CH);
     delay(5); // Increased delay to ensure MUX switches and line settles to GND, helping to discharge the ADC capacitor.
     analogRead(MUX_SIG_PIN); // Dummy read from GND to fully discharge the ADC capacitor.
@@ -162,15 +159,11 @@ SensorData readSensors() {
   delay(10); // Increased delay to match soil sensor reads for consistency
   int rawRainValue = analogRead(MUX_SIG_PIN);
 
-  Serial.print("  [MUX] Ch ");
-  Serial.print(RAIN_SENSOR_MUX_CH);
-  Serial.print(" (Rain): Raw value = ");
-  Serial.println(rawRainValue);
-
   if (rawRainValue < RAIN_SENSOR_MIN_VALID || rawRainValue > RAIN_SENSOR_MAX_VALID) {
     data.rainSensorValue = -1; // Error value
     all_mux_sensors_valid = false;
-    Serial.println("    -> Value is outside valid range. Marked as invalid.");
+  } else {
+    data.rainSensorValue = rawRainValue;
   }
 
   // --- NEW: Reset MUX to GND after the final read for good practice ---
@@ -267,83 +260,125 @@ void logData(const SensorData& data) {
   }
 }
 
-void updateLcdDisplay(const SensorData& sensors, const String& rtcTimeString) {
-    static unsigned long lastLcdUpdate = 0;
-    if (millis() - lastLcdUpdate > DISPLAY_UPDATE_INTERVAL_MS) {
-        lcd.clear();
-        lcd.printAt(0, 0, rtcTimeString.c_str());
+void runI2CScanner() {
+  i2cScanResults = ""; // Clear previous results for web display
+  byte error, address;
+  int nDevices = 0;
+  for (address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+    if (error == 0) {
+      String deviceLine = "Found device at 0x";
+      if (address < 16) {
+        deviceLine += "0";
+      }
+      deviceLine += String(address, HEX);
 
-        String tempLine = "In:" + String(sensors.tempInt, 1) + "C Out:" + String(sensors.tempExt, 1) + "C";
-        lcd.printAt(0, 1, tempLine.c_str());
+      // Add descriptive name for known devices
+      deviceLine += " (";
+      switch (address) {
+        case PCF1_ADDR:
+          deviceLine += "PCF8574_1 - Valves/Pumps/Fans";
+          break;
+        case PCF2_ADDR:
+          deviceLine += "PCF8574_2 - Doors/Trap";
+          break;
+        case RTC_CLOCK_ADDR:
+          deviceLine += "RTC Module Clock (DS3231)";
+          break;
+        case RTC_EEPROM_ADDR:
+          deviceLine += "RTC Module EEPROM";
+          break;
+        default:
+          deviceLine += "Unknown Device";
+          break;
+      }
+      deviceLine += ")";
 
-        String soilLine = "S1:" + soilStatus[0] + " S2:" + soilStatus[1] + " S3:" + soilStatus[2];
-        lcd.printAt(0, 2, soilLine.c_str());
-
-        String statusLine = "Rain:" + rainStatus + " Fans:" + fanStatus[0];
-        lcd.printAt(0, 3, statusLine.c_str());
-        lastLcdUpdate = millis();
+      Serial.println(deviceLine);
+      i2cScanResults += deviceLine + "<br>"; // Append for HTML display
+      nDevices++;
+    } else if (error == 4) {
+      String errorLine = "Unknown error at address 0x";
+      if (address < 16) {
+        errorLine += "0";
+      }
+      errorLine += String(address, HEX);
+      Serial.println(errorLine);
     }
-}
-
-void startMDNS() {
-  byte mac[6];
-  WiFi.macAddress(mac);
-  String hostname = "greenhouse-";
-  hostname += String(mac[4], HEX);
-  hostname += String(mac[5], HEX);
-
-  if (mdns.begin(hostname.c_str())) {
-    Serial.println("mDNS responder started: http://" + hostname + ".local");
-    mdns.addServiceRecord("http", 80, MDNSServiceTCP);
-  } else {
-    Serial.println("Error setting up MDNS responder!");
   }
+  if (nDevices == 0) {
+    String noDeviceMsg = "No I2C devices found. Please check wiring and power.";
+    Serial.println(noDeviceMsg);
+    i2cScanResults = noDeviceMsg;
+  }
+  Serial.println("I2C scan complete.\n");
 }
 
 // ======================================================================
-// setup() function (UPDATED: PCF initialization, Class considerations)
+// setup() function
 // ======================================================================
 void setup() {
-    Serial.begin(115200);
-    while (!Serial && millis() < 2000); // Wait for serial port to connect
-    Serial.println(F("\n--- System Initializing ---"));
-    // Initialize LCD
-    lcd.init();
-    lcd.printAt(0, 0, "Greenhouse Control");
-    lcd.printAt(0, 1, "System Starting...");
+  Serial.begin(115200);
+  delay(2000); // Small delay to ensure serial is ready
 
-    // Initialize hardware components
-    HardwareInit::initializeHardware();
+  Serial.println("Starting Solar Irrigation System...");
 
-    // Initialize authentication system with admin credentials
-    WebAuthentication::init(DEFAULT_WEB_USERNAME, DEFAULT_WEB_PASSWORD);
+  dhtInt.begin();
+  dhtExt.begin();
 
-    // TEMPORARY: Clear EEPROM for testing/resetting credentials
-    Serial.println(F("WARNING: Clearing EEPROM credentials!"));
-    for (int i = 0; i < 99; i++) { // Clear up to the end of password storage
-        EEPROM.write(i, 0xFF); // Write 0xFF to indicate empty/erased
+  Wire.begin();
+  runI2CScanner();
+
+  // Initialize both PCF8574 expanders based on their addresses from config.h
+  Serial.print("Initializing PCF8574_1 at 0x"); Serial.println(PCF1_ADDR, HEX);
+  pcf1Status = pcf1.begin(PCF1_ADDR);
+  if (!pcf1Status) {
+    Serial.println("ERROR: PCF8574_1 not found! Check wiring.");
+  } else {
+    Serial.println("PCF8574_1 OK. Setting initial pin states...");
+    // Set all PCF8574 pins to OUTPUT if they control relays, and set an initial safe state.
+    // Assuming HIGH means relay OFF (common for active-low relays).
+    for (int i = 0; i < 8; i++) {
+      pcf1.pinMode(i, OUTPUT);
+      pcf1.digitalWrite(i, HIGH);
     }
-    Serial.println(F("EEPROM cleared. Please re-upload without this code after first boot."));
+  }
 
-    // Attempt to load credentials from EEPROM
-    if (!CredentialsStorage::loadCredentials(ssid, pass)) {
-        Serial.println(F("INFO: No credentials in EEPROM, using secrets.h"));
-        strncpy(ssid, WIFI_SSID, sizeof(ssid) - 1);
-        strncpy(pass, WIFI_PASS, sizeof(pass) - 1);
-        ssid[sizeof(ssid) - 1] = '\0';
-        pass[sizeof(pass) - 1] = '\0';
-    } else {
-        Serial.println(F("INFO: Loaded credentials from EEPROM."));
+  Serial.print("Initializing PCF8574_2 at 0x"); Serial.println(PCF2_ADDR, HEX);
+  pcf2Status = pcf2.begin(PCF2_ADDR);
+  if (!pcf2Status) {
+    Serial.println("ERROR: PCF8574_2 not found! Check wiring.");
+  } else {
+    Serial.println("PCF8574_2 OK. Setting initial pin states (Outputs and Inputs)...");
+    // Set all pins to a default state first (OUTPUT, HIGH)
+    for (int i = 0; i < 8; i++) {
+      pcf2.pinMode(i, OUTPUT);
+      pcf2.digitalWrite(i, HIGH);
     }
+    // Now, specifically set the trap limit switch pins as INPUT_PULLUP
+    Serial.println("  - Configuring Trap Limit Switch pins on PCF2 as INPUT_PULLUP.");
+    pcf2.pinMode(PCF2_TRAP_LIMIT_OPEN_PIN, INPUT_PULLUP);
+    pcf2.pinMode(PCF2_TRAP_LIMIT_CLOSED_PIN, INPUT_PULLUP);
+  }
 
-    // Initialize Web Server with credentials
-    webServer.begin(ssid, pass);
+  // Quick MUX test after connecting EN pin
+  HardwareInit::quickMuxTest();
 
-    if (WiFi.status() == WL_CONNECTED) {
-        startMDNS();
-    }
+  // Initialize RTC and SD card, updating global status flags
+  DateTime startTime = HardwareInit::initializeRTC(rtc, true);
+  rtcStatus = startTime.isValid();
+  sdStatus = HardwareInit::initializeSD(SD_CS_PIN);
 
-    Serial.println(F("--- System Ready ---"));
+  // Validate the multiplexer using the new test function
+  muxStatus = HardwareInit::validateMux();
+
+  webServer.begin(ssid, pass);
+  HardwareInit::initializePins(); // Call our customized pin initialization
+
+  Serial.println("=== Setup Complete ===");
+  Serial.println("System ready for operation");
+  Serial.println("=====================");
 }
 
 // ======================================================================
@@ -411,14 +446,13 @@ void loop() {
         climateControl.control(sensors);
     }
 
-    // Web server and mDNS handling
+    // Web server handling: Pass all relevant sensor data
     if (WiFi.status() == WL_CONNECTED) {
         webServer.handleClient(sensors, rtcTimeString);
     }
 
     // System display update: Pass all relevant sensor data
     SystemDisplay::displayStatus(sensors, rtcStatus, rtcTimeString);
-    updateLcdDisplay(sensors, rtcTimeString);
 
     delay(100); // Small delay to prevent busy-looping
 }

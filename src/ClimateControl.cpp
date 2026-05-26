@@ -13,15 +13,29 @@ void ClimateControl::controlFan(int fanIndex, bool state) {
 void ClimateControl::control(const SensorData& sensors) {
     if (!sensors.valid) return;
     
-    bool fanNeeded = (sensors.tempInt > FAN_TEMP_PRIMARY) || (sensors.humInt > FAN_HUM_PRIMARY);
-    controlFan(0, fanNeeded); // Control first fan
+    // Primary Fan Logic with Hysteresis
+    bool fan1CurrentlyOn = (fanStatus[0] == "on");
+    bool fan1Needed = fan1CurrentlyOn; 
+    
+    if (!fan1CurrentlyOn) {
+        fan1Needed = (sensors.tempInt > FAN_TEMP_PRIMARY) || (sensors.humInt > FAN_HUM_PRIMARY);
+    } else {
+        fan1Needed = (sensors.tempInt > (FAN_TEMP_PRIMARY - CLIMATE_HYSTERESIS)) && 
+                     (sensors.humInt > (FAN_HUM_PRIMARY - CLIMATE_HYSTERESIS));
+    }
+    controlFan(0, fan1Needed);
 
-    bool secondaryFanNeeded = (sensors.tempInt > FAN_TEMP_SECONDARY) || (sensors.humInt > FAN_HUM_SECONDARY);
+    // Secondary Fan Logic
     if (NUM_FANS > 1) {
+        bool fan2CurrentlyOn = (fanStatus[1] == "on");
+        bool secondaryFanNeeded = fan2CurrentlyOn ? 
+            (sensors.tempInt > (FAN_TEMP_SECONDARY - CLIMATE_HYSTERESIS)) : 
+            (sensors.tempInt > FAN_TEMP_SECONDARY);
+            
         controlFan(1, secondaryFanNeeded); // Control second fan
     }
-    
-    if (fanNeeded) {
+
+    if (fan1Needed || (NUM_FANS > 1 && (fanStatus[1] == "on"))) {
         Serial.print("Climate control: Fan ON (T:");
         Serial.print(sensors.tempInt);
         Serial.print("°C, H:");
