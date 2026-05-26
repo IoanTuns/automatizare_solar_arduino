@@ -12,8 +12,10 @@ public:
     void setCursor(uint8_t col, uint8_t row);
     void printAt(uint8_t col, uint8_t row, const char* message);
 
-private:
+protected:
     LiquidCrystal_I2C _lcd;
+
+private:
     uint8_t _lcd_addr;
     uint8_t _lcd_cols;
     uint8_t _lcd_rows;
